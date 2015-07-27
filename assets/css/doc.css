@@ -42,7 +42,7 @@ code {
     border-radius: 4px;
 }
 
-.code-box {    
+.code-box {
     padding: 9px 14px;
     margin-bottom: 14px;
     color: #654D37;
@@ -73,7 +73,11 @@ code {
 }
 
 .btn:hover {
-    border: 1px solid transparent;    
+    border: 1px solid transparent;
     background-color: #B13254;
     color: #FFF !important;
+}
+
+.preset {
+    margin-bottom: 15px;
 }
