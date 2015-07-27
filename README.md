@@ -1,5 +1,9 @@
 # Netscope
 
-A web-based tool for visualizing neural network topologies. It currently supports UC Berkeley's Caffe framework.
+A web-based tool for visualizing neural network topologies. It currently supports UC Berkeley's [Caffe framework](https://github.com/bvlc/caffe).
 
-Live version + more information at: [http://ethereon.github.io/netscope](http://ethereon.github.io/netscope)
+### Documentation
+- [The Quick Start Guide](http://ethereon.github.io/netscope/quickstart.html)
+
+### Live Demo
+- [Visualization of the Deep Convolutional Neural Network "AlexNet"](http://ethereon.github.io/netscope/#/preset/alexnet)
