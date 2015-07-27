@@ -45,6 +45,7 @@ $(document).ready ->
     routes =
         '/gist/:gistID' : makeLoader Source.fromGist
         '/url/(.+)'     : makeLoader Source.fromURL
+        '/preset/:name' : makeLoader Source.fromPreset
         '/editor(/?)'   : showEditor
         '/doc'          : showDocumentation
     router = Router(routes)

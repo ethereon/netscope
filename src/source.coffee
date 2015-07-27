@@ -28,3 +28,8 @@ exports.fromURL = (url, callback) ->
     $.ajax
         url: url
         success: -> callback fromProtoText data
+
+exports.fromPreset = (name, callback) ->
+    $.get './presets/'+name+'.prototxt', (data) ->
+        callback fromProtoText data
+        

@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="assets/css/doc.css">
 </head>
 <body>
-    <div class="container app-title">
+    <div class="container">
         <h1>Netscope</h1>        
         <p>A web-based tool for visualizing neural network architectures (or technically, any directed acyclic graph). It currently supports <a href="http://caffe.berkeleyvision.org/">Caffe</a>'s prototxt format.</p>
     </div>
@@ -16,13 +16,40 @@
         <p>If your <code>.prototxt</code> file is part of a GitHub Gist, you can visualize it by visiting this URL:</p>
         <div class="code-box">http://ethereon.github.io/netscope/#/gist/<span class="highlight">your-gist-id</span></div>
         <p>The Gist ID is the numeric suffix in the Gist's URL.</p>
-        <a href="/netscope/#/gist/e65799e70358c6782b1b" class="btn">View Example</a>
+        <a href="./#/gist/e65799e70358c6782b1b" class="btn">View Example</a>
     </div>
     <div class="container">
         <h2>Editor</h2>
-        <p>You can use <a href="/netscope/#/editor">the inline editor</a> to enter your network definition (currently limited to valid Caffe's prototext) and visualize the network.</p>
+        <p>You can use <a href="./#/editor">the inline editor</a> to enter your network definition (currently limited to valid Caffe's prototext) and visualize the network.</p>
         <p>Press <code>Shift+Enter</code> in the editor to render your network.</p>
-        <a href="/netscope/#/editor" class="btn">Launch Editor</a>
+        <a href="./#/editor" class="btn">Launch Editor</a>
     </div>    
+    <div class="container">
+        <h2>Presets</h2>
+        <div class="preset">
+            <a href="./#/preset/alexnet">AlexNet</a>
+            <div class="authors">Alex Krizhevsky, Ilya Sutskever, Geoffry Hinton</p></div>
+        </div>
+        <div class="preset">
+            <a href="./#/preset/caffenet">CaffeNet</a>
+            <div class="authors">Yangqing Jia, Evan Shelhamer, et. al.</p></div>
+        </div>
+        <div class="preset">
+            <a href="./#/preset/fcn-8s-pascal">Fully Convolutional Network &mdash; Three Stream</a>
+            <div class="authors">Jonathan Long, Evan Shelhamer, Trevor Darrell</p></div>
+        </div>
+        <div class="preset">
+            <a href="./#/preset/googlenet">GoogLeNet</a>
+            <div class="authors">Christian Szegedy, et. al.</p></div>
+        </div>
+        <div class="preset">
+            <a href="./#/preset/nin">Network in Network</a>
+            <div class="authors">Min Lin, Qiang Chen, Shuicheng Yan</p></div>
+        </div>
+        <div class="preset">
+            <a href="./#/preset/vgg-16">VGG 16 Layers</a>
+            <div class="authors">Karen Simonyan, Andrew Zisserman</p></div>
+        </div>
+    </div>
 </body>
 </html>

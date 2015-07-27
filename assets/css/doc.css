@@ -12,10 +12,6 @@ h1, h2, h3 {
     font-weight: 300;
 }
 
-.app-title {
-    padding-bottom:10px;
-}
-
 .container {
     width: 650px;
     margin:25px auto 50px auto;

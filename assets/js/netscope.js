@@ -1954,6 +1954,12 @@ exports.fromURL = function(url, callback) {
   });
 };
 
+exports.fromPreset = function(name, callback) {
+  return $.get('./presets/' + name + '.prototxt', function(data) {
+    return callback(fromProtoText(data));
+  });
+};
+
 
 
 },{"./caffe-parser":1,"./network.coffee":4}],7:[function(require,module,exports){
@@ -2034,6 +2040,7 @@ $(document).ready(function() {
   routes = {
     '/gist/:gistID': makeLoader(Source.fromGist),
     '/url/(.+)': makeLoader(Source.fromURL),
+    '/preset/:name': makeLoader(Source.fromPreset),
     '/editor(/?)': showEditor,
     '/doc': showDocumentation
   };
