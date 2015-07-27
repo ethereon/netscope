@@ -37,10 +37,15 @@ showEditor = () ->
         $.getScript 'assets/js/lib/codemirror.min.js', ->
             window.netEditor = new Editor(makeLoader Source.fromProtoText)
 
+showDocumentation = () ->
+    console.log '!'
+    window.location.href = 'quickstart.html'
+
 $(document).ready ->
     routes =
         '/gist/:gistID' : makeLoader Source.fromGist
         '/url/(.+)'     : makeLoader Source.fromURL
         '/editor(/?)'   : showEditor
+        '/doc'          : showDocumentation
     router = Router(routes)
-    router.init()
+    router.init '/doc'

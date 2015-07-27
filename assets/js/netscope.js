@@ -1957,7 +1957,7 @@ exports.fromURL = function(url, callback) {
 
 
 },{"./caffe-parser":1,"./network.coffee":4}],7:[function(require,module,exports){
-var Editor, LoadingController, Renderer, Source, makeLoader, showEditor,
+var Editor, LoadingController, Renderer, Source, makeLoader, showDocumentation, showEditor,
   slice = [].slice;
 
 Source = require('./source.coffee');
@@ -2024,15 +2024,21 @@ showEditor = function() {
   }
 };
 
+showDocumentation = function() {
+  console.log('!');
+  return window.location.href = 'quickstart.html';
+};
+
 $(document).ready(function() {
   var router, routes;
   routes = {
     '/gist/:gistID': makeLoader(Source.fromGist),
     '/url/(.+)': makeLoader(Source.fromURL),
-    '/editor(/?)': showEditor
+    '/editor(/?)': showEditor,
+    '/doc': showDocumentation
   };
   router = Router(routes);
-  return router.init();
+  return router.init('/doc');
 });
 
 
