@@ -1,4 +1,4 @@
-module.exports = 
+module.exports =
 class Editor
     constructor: (@loader) ->
         editorWidthPercentage = 30;
@@ -9,7 +9,13 @@ class Editor
         @editor = CodeMirror $editorBox[0],
             value: '# Enter your network definition here.\n# Use Shift+Enter to update the visualization.'
             lineNumbers : true
-            extraKeys:
-                'Shift-Enter': =>
-                    @loader @editor.getValue()
-                
+            lineWrapping : true
+        @editor.on 'keydown', (cm, e) => @onKeyDown(e)
+
+    onKeyDown: (e) ->
+        if (e.shiftKey && e.keyCode==13)
+            # Using onKeyDown lets us prevent the default action,
+            # even if an error is encountered (say, due to parsing).
+            # This would not be possible with keymaps.
+            e.preventDefault()
+            @loader @editor.getValue()

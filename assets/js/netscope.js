@@ -1549,15 +1549,21 @@ module.exports = Editor = (function() {
     this.editor = CodeMirror($editorBox[0], {
       value: '# Enter your network definition here.\n# Use Shift+Enter to update the visualization.',
       lineNumbers: true,
-      extraKeys: {
-        'Shift-Enter': (function(_this) {
-          return function() {
-            return _this.loader(_this.editor.getValue());
-          };
-        })(this)
-      }
+      lineWrapping: true
     });
+    this.editor.on('keydown', (function(_this) {
+      return function(cm, e) {
+        return _this.onKeyDown(e);
+      };
+    })(this));
   }
+
+  Editor.prototype.onKeyDown = function(e) {
+    if (e.shiftKey && e.keyCode === 13) {
+      e.preventDefault();
+      return this.loader(this.editor.getValue());
+    }
+  };
 
   return Editor;
 
@@ -1963,7 +1969,7 @@ exports.fromPreset = function(name, callback) {
 
 
 },{"./caffe-parser":1,"./network.coffee":4}],7:[function(require,module,exports){
-var Editor, LoadingController, Renderer, Source, makeLoader, showDocumentation, showEditor,
+var AppController, Editor, Renderer, Source,
   slice = [].slice;
 
 Source = require('./source.coffee');
@@ -1972,32 +1978,34 @@ Renderer = require('./renderer.coffee');
 
 Editor = require('./editor.coffee');
 
-LoadingController = (function() {
-  function LoadingController(loader1) {
-    this.loader = loader1;
+AppController = (function() {
+  function AppController() {
     this.inProgress = false;
     this.$spinner = $('#net-spinner');
     this.$netBox = $('#net-container');
+    this.$netError = $('#net-error');
     this.svg = '#net-svg';
+    this.setupErrorHandler();
+    this.setupRoutes();
   }
 
-  LoadingController.prototype.start = function() {
-    var args;
-    args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
+  AppController.prototype.startLoading = function() {
+    var args, loader;
+    loader = arguments[0], args = 2 <= arguments.length ? slice.call(arguments, 1) : [];
     if (this.inProgress) {
       return;
     }
-    this.inProgress = true;
+    this.$netError.hide();
     this.$netBox.hide();
     this.$spinner.show();
-    return this.loader.apply(this, slice.call(args).concat([(function(_this) {
+    return loader.apply(null, slice.call(args).concat([(function(_this) {
       return function(net) {
-        return _this.finish(net);
+        return _this.completeLoading(net);
       };
     })(this)]));
   };
 
-  LoadingController.prototype.finish = function(net) {
+  AppController.prototype.completeLoading = function(net) {
     var renderer;
     this.$spinner.hide();
     $('#net-title').html(net.name.replace(/_/g, ' '));
@@ -2008,44 +2016,74 @@ LoadingController = (function() {
     return this.inProgress = false;
   };
 
-  return LoadingController;
+  AppController.prototype.makeLoader = function(loader) {
+    return (function(_this) {
+      return function() {
+        var args;
+        args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
+        return _this.startLoading.apply(_this, [loader].concat(slice.call(args)));
+      };
+    })(this);
+  };
+
+  AppController.prototype.showEditor = function() {
+    var loader;
+    loader = this.makeLoader(Source.fromProtoText);
+    if (_.isUndefined(window.CodeMirror)) {
+      return $.getScript('assets/js/lib/codemirror.min.js', function() {
+        return this.netEditor = new Editor(loader);
+      });
+    }
+  };
+
+  AppController.prototype.showDocumentation = function() {
+    return window.location.href = 'quickstart.html';
+  };
+
+  AppController.prototype.setupErrorHandler = function() {
+    return window.onerror = (function(_this) {
+      return function(message, filename, lineno, colno, e) {
+        var msg;
+        msg = message;
+        if (!(_.isUndefined(e) || _.isUndefined(e.line) || _.isUndefined(e.column))) {
+          msg = _.template('Line ${line}, Column ${column}: ${message}')(e);
+        }
+        _this.$spinner.hide();
+        $('.msg', _this.$netError).html(msg);
+        _this.$netError.show();
+        return _this.inProgress = false;
+      };
+    })(this);
+  };
+
+  AppController.prototype.setupRoutes = function() {
+    var routes;
+    routes = {
+      '/gist/:gistID': this.makeLoader(Source.fromGist),
+      '/url/(.+)': this.makeLoader(Source.fromURL),
+      '/preset/:name': this.makeLoader(Source.fromPreset),
+      '/editor(/?)': (function(_this) {
+        return function() {
+          return _this.showEditor();
+        };
+      })(this),
+      '/doc': (function(_this) {
+        return function() {
+          return _this.showDocumentation();
+        };
+      })(this)
+    };
+    this.router = Router(routes);
+    return this.router.init('/doc');
+  };
+
+  return AppController;
 
 })();
 
-makeLoader = function(loader) {
-  var controller;
-  controller = new LoadingController(loader);
-  return function() {
-    var args;
-    args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
-    return controller.start.apply(controller, args);
-  };
-};
-
-showEditor = function() {
-  if (_.isUndefined(window.CodeMirror)) {
-    return $.getScript('assets/js/lib/codemirror.min.js', function() {
-      return window.netEditor = new Editor(makeLoader(Source.fromProtoText));
-    });
-  }
-};
-
-showDocumentation = function() {
-  console.log('!');
-  return window.location.href = 'quickstart.html';
-};
-
 $(document).ready(function() {
-  var router, routes;
-  routes = {
-    '/gist/:gistID': makeLoader(Source.fromGist),
-    '/url/(.+)': makeLoader(Source.fromURL),
-    '/preset/:name': makeLoader(Source.fromPreset),
-    '/editor(/?)': showEditor,
-    '/doc': showDocumentation
-  };
-  router = Router(routes);
-  return router.init('/doc');
+  var app;
+  return app = new AppController();
 });
 
 
