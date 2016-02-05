@@ -1,11 +1,11 @@
 AppController   = require './app.coffee'
-CaffeNetwork    = require './caffe/network.coffee'
+CaffeNetwork    = require './caffe/caffe.coffee'
 Loader          = require './loader.coffee'
 
 showDocumentation = ->
     window.location.href = 'quickstart.html'
 
-$(document).ready ->    
+$(document).ready ->
     app = new AppController()
     # Setup Caffe model loader.
     # This can be replaced with any arbitrary parser to support
@@ -14,7 +14,7 @@ $(document).ready ->
     # Helper function for wrapping the load calls.
     makeLoader = (loadingFunc) ->
         (args...) ->
-            app.startLoading loadingFunc, args...            
+            app.startLoading loadingFunc, args...
 
     # Register routes
     routes =

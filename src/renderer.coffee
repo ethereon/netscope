@@ -23,51 +23,44 @@ class Renderer
 
     generateGraph: ->
         @setupGraph()
-        inplaceLayers = []
-        for layer in @net.layers
-            if (@inplaceMode!=INPLACE_NONE) and layer.isInPlace()
-                if @inplaceMode!=INPLACE_HIDE
-                    inplaceLayers.push layer
-                continue
-            @insertNode layer
-            for input in (layer.inputs or [])
-                if not (input.outputs? and layer in input.outputs)
-                    @insertLink input, layer
-            for output in (layer.outputs or [])
-                if output!=layer
-                    @insertLink layer, output
-        for layer in inplaceLayers
-            nodeMutated = @graph.node layer.top
-            nodeMutated.label += @generateLabel layer
-            nodeMutated.layers.push layer
+        # TODO: Topologically sort the nodes.
+        # For now, they are topologically sorted by construction.
+        # However, for future sources, this may not be the case.
+        for node in @net.nodes
+            @insertNode node
+            for parent in node.parents
+                @insertLink parent, node
         for source in @graph.sources()
             (@graph.node source).class = 'node-type-source'
         for sink in @graph.sinks()
             (@graph.node sink).class = 'node-type-sink'
         @render()
 
-    insertNode: (layer) ->
-        nodeClass = 'node-type-'+layer.type.replace(/_/g, '-').toLowerCase()
+    insertNode: (node) ->
+        nodeClass = 'node-type-'+node.type.replace(/_/g, '-').toLowerCase()
         nodeDesc =
             labelType : 'html'
-            label     : @generateLabel layer
+            label     : @generateLabel node
             class     : nodeClass
-            layers    : [layer]
+            name      : node.name
+            type      : node.type
+            attribs   : node.attribs
             rx        : 5
             ry        : 5
         if @iconify
             _.extend nodeDesc,
                 shape: 'circle'
-        @graph.setNode layer.name, nodeDesc
+        @graph.setNode node.name, nodeDesc
 
-    generateLabel: (layer) ->
+    generateLabel: (node) ->
         if not @iconify
-            '<div class="node-label">'+layer.name+'</div>'
+            '<div class="node-label">'+node.name+'</div>'
         else
             ''
 
     insertLink: (src, dst) ->
-        @graph.setEdge src.name, dst.name
+        @graph.setEdge src.name, dst.name,
+            arrowhead : 'vee'
 
     renderKey:(key) ->
         key.replace(/_/g, ' ')
@@ -95,14 +88,13 @@ class Renderer
 
     tipForNode: (nodeKey) ->
         node = @graph.node nodeKey
-        layer = node.layers[0]
         s = ''
         s += '<div class="node-header">'
-        s += '<span class="node-title">'+layer.name+'</span>'
+        s += '<span class="node-title">'+node.name+'</span>'
         s += ' &middot; '
-        s += '<span class="node-type">'+@renderKey(layer.type)+'</span>'
+        s += '<span class="node-type">'+@renderKey(node.type)+'</span>'
         s += '</div>'
-        s += @renderSection node.layers[0].params
+        s += @renderSection node.attribs
         return s
 
     render: ->

@@ -84,141 +84,134 @@ module.exports = AppController = (function() {
 })();
 
 
-},{"./editor.coffee":5,"./renderer.coffee":8}],2:[function(require,module,exports){
-var Layer;
-
-module.exports = Layer = (function() {
-  function Layer() {
-    this.params = {};
-  }
-
-  Layer.parseMultiple = function(desc) {
-    var entry, headerKeys, i, layer, layerDesc, layers, len;
-    layers = [];
-    for (i = 0, len = desc.length; i < len; i++) {
-      entry = desc[i];
-      layerDesc = entry.layer || entry.layers;
-      if (layerDesc != null) {
-        layer = new Layer;
-        headerKeys = ['name', 'type', 'top', 'bottom'];
-        _.extend(layer, _.pick(layerDesc, headerKeys));
-        layer.params = _.omit(layerDesc, headerKeys);
-        layers.push(layer);
-      } else {
-        console.log('Unidentified entry ignored: ', entry);
-      }
-    }
-    return layers;
-  };
-
-  Layer.createImplicit = function(name) {
-    var layer;
-    layer = new Layer;
-    layer.name = name;
-    layer.type = 'implicit';
-    return layer;
-  };
-
-  Layer.prototype.isInPlace = function() {
-    return (this.top != null) && (this.top === this.bottom);
-  };
-
-  return Layer;
-
-})();
-
-
-},{}],3:[function(require,module,exports){
-var CaffeNetwork, Layer, Parser;
-
-Layer = require('./layer.coffee');
+},{"./editor.coffee":4,"./renderer.coffee":8}],2:[function(require,module,exports){
+var CaffeParser, Network, Parser, generateLayers, generateNetwork,
+  hasProp = {}.hasOwnProperty;
 
 Parser = require('./parser');
 
-module.exports = CaffeNetwork = (function() {
-  function CaffeNetwork() {}
+Network = require('../network.coffee');
 
-  CaffeNetwork.prototype.processLayers = function(layers1, header) {
-    var dataLayer, dims, getLayers, getSingleLayer, i, implicitLayers, input, inputs, j, k, l, layer, len, len1, len2, ref, ref1, results;
-    this.layers = layers1;
-    this.layerTable = {};
-    implicitLayers = [];
-    getSingleLayer = (function(_this) {
-      return function(name) {
-        var layer;
-        layer = _this.layerTable[name];
-        if (layer == null) {
-          layer = Layer.createImplicit(name);
-          implicitLayers.push(layer);
-          _this.layerTable[name] = layer;
-        }
-        return layer;
-      };
-    })(this);
-    getLayers = (function(_this) {
-      return function(names) {
-        names = [].concat(names);
-        return _.map(names, getSingleLayer);
-      };
-    })(this);
-    ref = this.layers;
-    for (j = 0, len = ref.length; j < len; j++) {
-      layer = ref[j];
-      this.layerTable[layer.name] = layer;
+generateLayers = function(descriptors, phase) {
+  var entry, headerKeys, j, layer, layerDesc, layers, len;
+  if (phase == null) {
+    phase = 'train';
+  }
+  layers = [];
+  for (j = 0, len = descriptors.length; j < len; j++) {
+    entry = descriptors[j];
+    layerDesc = entry.layer || entry.layers;
+    if (layerDesc != null) {
+      layer = {};
+      headerKeys = ['name', 'type', 'top', 'bottom'];
+      _.extend(layer, _.pick(layerDesc, headerKeys));
+      layer.attribs = _.omit(layerDesc, headerKeys);
+      layers.push(layer);
+    } else {
+      console.log('Unidentified entry ignored: ', entry);
     }
-    ref1 = this.layers;
-    for (k = 0, len1 = ref1.length; k < len1; k++) {
-      layer = ref1[k];
-      if (layer.top != null) {
-        layer.outputs = getLayers(layer.top);
+  }
+  layers = _.filter(layers, function(layer) {
+    var layerPhase, ref;
+    layerPhase = (ref = layer.attribs.include) != null ? ref.phase : void 0;
+    return !((layerPhase != null) && layerPhase !== phase);
+  });
+  return layers;
+};
+
+generateNetwork = function(layers, header) {
+  var children, curNode, dataNode, dims, getNodes, getSingleNode, i, implicitLayers, inplaceChild, inplaceTable, input, inputs, j, k, l, layer, len, len1, len2, len3, m, n, net, node, nodeTable, v;
+  nodeTable = {};
+  implicitLayers = [];
+  net = new Network(header.name);
+  getSingleNode = (function(_this) {
+    return function(name) {
+      var node;
+      node = nodeTable[name];
+      if (node == null) {
+        node = net.createNode(name, 'implicit');
+        nodeTable[name] = node;
       }
-      if (layer.bottom != null) {
-        layer.inputs = getLayers(layer.bottom);
+      return node;
+    };
+  })(this);
+  getNodes = (function(_this) {
+    return function(names, exclude) {
+      names = [].concat(names);
+      if (exclude != null) {
+        _.pullAll(names, exclude);
       }
-    }
-    Array.prototype.push.apply(this.layers, implicitLayers);
-    if (((header != null ? header.input : void 0) != null) && ((header != null ? header.input_dim : void 0) != null)) {
-      inputs = [].concat(header.input);
-      dims = header.input_dim;
-      if (inputs.length === (dims.length / 4)) {
-        results = [];
-        for (i = l = 0, len2 = inputs.length; l < len2; i = ++l) {
-          input = inputs[i];
-          dataLayer = this.layerTable[input];
-          dataLayer.type = 'data';
-          results.push(dataLayer.params.shape = dims.slice(i * 4, (i + 1) * 4));
+      return _.map(names, getSingleNode);
+    };
+  })(this);
+  for (j = 0, len = layers.length; j < len; j++) {
+    layer = layers[j];
+    nodeTable[layer.name] = net.createNode(layer.name, layer.type, layer.attribs);
+  }
+  inplaceTable = {};
+  for (l = 0, len1 = layers.length; l < len1; l++) {
+    layer = layers[l];
+    node = nodeTable[layer.name];
+    if (layer.top != null) {
+      if (layer.top === layer.bottom) {
+        if (inplaceTable[layer.top] == null) {
+          inplaceTable[layer.top] = [];
         }
-        return results;
+        inplaceTable[layer.top].push(node);
+        continue;
       } else {
-        return console.log('Inconsistent input dimensions.');
+        node.addChildren(getNodes(layer.top, [layer.name]));
       }
     }
-  };
-
-  CaffeNetwork.parse = function(txt, phase) {
-    var header, layerDesc, layers, net, ref;
-    if (phase == null) {
-      phase = 'train';
+    if (layer.bottom != null) {
+      node.addParents(getNodes(layer.bottom, [].concat(layer.top)));
     }
+  }
+  for (k in inplaceTable) {
+    if (!hasProp.call(inplaceTable, k)) continue;
+    v = inplaceTable[k];
+    curNode = nodeTable[k];
+    children = curNode.detachChildren();
+    for (m = 0, len2 = v.length; m < len2; m++) {
+      inplaceChild = v[m];
+      curNode.addChild(inplaceChild);
+      curNode = inplaceChild;
+    }
+    curNode.addChildren(children);
+  }
+  if (((header != null ? header.input : void 0) != null) && ((header != null ? header.input_dim : void 0) != null)) {
+    inputs = [].concat(header.input);
+    dims = header.input_dim;
+    if (inputs.length === (dims.length / 4)) {
+      for (i = n = 0, len3 = inputs.length; n < len3; i = ++n) {
+        input = inputs[i];
+        dataNode = nodeTable[input];
+        dataNode.type = 'data';
+        dataNode.attribs.shape = dims.slice(i * 4, (i + 1) * 4);
+      }
+    } else {
+      console.log('Inconsistent input dimensions.');
+    }
+  }
+  return net;
+};
+
+module.exports = CaffeParser = (function() {
+  function CaffeParser() {}
+
+  CaffeParser.parse = function(txt, phase) {
+    var header, layerDesc, layers, ref;
     ref = Parser.parse(txt), header = ref[0], layerDesc = ref[1];
-    layers = Layer.parseMultiple(layerDesc);
-    layers = _.filter(layers, function(layer) {
-      var layerPhase, ref1;
-      layerPhase = (ref1 = layer.params.include) != null ? ref1.phase : void 0;
-      return !((layerPhase != null) && layerPhase !== phase);
-    });
-    net = new CaffeNetwork();
-    net.name = header.name || 'Untitled Network';
-    net.processLayers(layers, header);
-    return net;
+    layers = generateLayers(layerDesc, phase);
+    return generateNetwork(layers, header);
   };
 
-  return CaffeNetwork;
+  return CaffeParser;
 
 })();
 
 
-},{"./layer.coffee":2,"./parser":4}],4:[function(require,module,exports){
+},{"../network.coffee":7,"./parser":3}],3:[function(require,module,exports){
 module.exports = (function() {
 
   function peg$subclass(child, parent) {
@@ -1754,7 +1747,7 @@ module.exports = (function() {
   };
 })();
 
-},{}],5:[function(require,module,exports){
+},{}],4:[function(require,module,exports){
 var Editor;
 
 module.exports = Editor = (function() {
@@ -1790,7 +1783,7 @@ module.exports = Editor = (function() {
 })();
 
 
-},{}],6:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 var Loader,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
 
@@ -1847,7 +1840,6 @@ module.exports = Loader = (function() {
 
   Loader.prototype.load = function(data, callback) {
     var net;
-    console.log('Loading from ', data);
     net = this.parser.parse(data);
     if (!_.isUndefined(callback)) {
       callback(net);
@@ -1860,13 +1852,13 @@ module.exports = Loader = (function() {
 })();
 
 
-},{}],7:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 var AppController, CaffeNetwork, Loader, showDocumentation,
   slice = [].slice;
 
 AppController = require('./app.coffee');
 
-CaffeNetwork = require('./caffe/network.coffee');
+CaffeNetwork = require('./caffe/caffe.coffee');
 
 Loader = require('./loader.coffee');
 
@@ -1905,9 +1897,95 @@ $(document).ready(function() {
 });
 
 
-},{"./app.coffee":1,"./caffe/network.coffee":3,"./loader.coffee":6}],8:[function(require,module,exports){
+},{"./app.coffee":1,"./caffe/caffe.coffee":2,"./loader.coffee":5}],7:[function(require,module,exports){
+var Network, Node,
+  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+  indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
+
+Node = (function() {
+  function Node(name, type1, attribs1) {
+    this.name = name;
+    this.type = type1;
+    this.attribs = attribs1 != null ? attribs1 : {};
+    this.detachChildren = bind(this.detachChildren, this);
+    this.detachChild = bind(this.detachChild, this);
+    this.addParents = bind(this.addParents, this);
+    this.addParent = bind(this.addParent, this);
+    this.addChildren = bind(this.addChildren, this);
+    this.addChild = bind(this.addChild, this);
+    this.parents = [];
+    this.children = [];
+  }
+
+  Node.prototype.addChild = function(child) {
+    if (indexOf.call(this.children, child) < 0) {
+      this.children.push(child);
+      if (indexOf.call(child.parents, this) < 0) {
+        return child.parents.push(this);
+      }
+    }
+  };
+
+  Node.prototype.addChildren = function(children) {
+    return _.forEach(children, (function(_this) {
+      return function(c) {
+        return _this.addChild(c);
+      };
+    })(this));
+  };
+
+  Node.prototype.addParent = function(parent) {
+    return parent.addChild(this);
+  };
+
+  Node.prototype.addParents = function(parents) {
+    return _.forEach(parents, (function(_this) {
+      return function(p) {
+        return _this.addParent(p);
+      };
+    })(this));
+  };
+
+  Node.prototype.detachChild = function(child) {
+    _.pull(this.children, child);
+    return _.pull(child.parents, this);
+  };
+
+  Node.prototype.detachChildren = function() {
+    var children;
+    children = _.clone(this.children);
+    _.forEach(children, (function(_this) {
+      return function(c) {
+        return _this.detachChild(c);
+      };
+    })(this));
+    return children;
+  };
+
+  return Node;
+
+})();
+
+module.exports = Network = (function() {
+  function Network(name) {
+    this.name = name != null ? name : 'Untitled Network';
+    this.nodes = [];
+  }
+
+  Network.prototype.createNode = function(label, type, attribs) {
+    var node;
+    node = new Node(label, type, attribs);
+    this.nodes.push(node);
+    return node;
+  };
+
+  return Network;
+
+})();
+
+
+},{}],8:[function(require,module,exports){
 var INPLACE_FUSE, INPLACE_HIDE, INPLACE_NONE, Renderer,
-  indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; },
   hasProp = {}.hasOwnProperty;
 
 INPLACE_FUSE = 1;
@@ -1917,9 +1995,9 @@ INPLACE_HIDE = 2;
 INPLACE_NONE = 3;
 
 module.exports = Renderer = (function() {
-  function Renderer(net, parent) {
+  function Renderer(net, parent1) {
     this.net = net;
-    this.parent = parent;
+    this.parent = parent1;
     this.iconify = false;
     this.inplaceMode = INPLACE_FUSE;
     this.layoutDirection = 'tb';
@@ -1942,61 +2020,41 @@ module.exports = Renderer = (function() {
   };
 
   Renderer.prototype.generateGraph = function() {
-    var i, inplaceLayers, input, j, k, l, layer, len, len1, len2, len3, len4, len5, m, n, nodeMutated, output, ref, ref1, ref2, ref3, ref4, sink, source;
+    var i, j, k, l, len, len1, len2, len3, node, parent, ref, ref1, ref2, ref3, sink, source;
     this.setupGraph();
-    inplaceLayers = [];
-    ref = this.net.layers;
+    ref = this.net.nodes;
     for (i = 0, len = ref.length; i < len; i++) {
-      layer = ref[i];
-      if ((this.inplaceMode !== INPLACE_NONE) && layer.isInPlace()) {
-        if (this.inplaceMode !== INPLACE_HIDE) {
-          inplaceLayers.push(layer);
-        }
-        continue;
-      }
-      this.insertNode(layer);
-      ref1 = layer.inputs || [];
+      node = ref[i];
+      this.insertNode(node);
+      ref1 = node.parents;
       for (j = 0, len1 = ref1.length; j < len1; j++) {
-        input = ref1[j];
-        if (!((input.outputs != null) && indexOf.call(input.outputs, layer) >= 0)) {
-          this.insertLink(input, layer);
-        }
-      }
-      ref2 = layer.outputs || [];
-      for (k = 0, len2 = ref2.length; k < len2; k++) {
-        output = ref2[k];
-        if (output !== layer) {
-          this.insertLink(layer, output);
-        }
+        parent = ref1[j];
+        this.insertLink(parent, node);
       }
     }
-    for (l = 0, len3 = inplaceLayers.length; l < len3; l++) {
-      layer = inplaceLayers[l];
-      nodeMutated = this.graph.node(layer.top);
-      nodeMutated.label += this.generateLabel(layer);
-      nodeMutated.layers.push(layer);
-    }
-    ref3 = this.graph.sources();
-    for (m = 0, len4 = ref3.length; m < len4; m++) {
-      source = ref3[m];
+    ref2 = this.graph.sources();
+    for (k = 0, len2 = ref2.length; k < len2; k++) {
+      source = ref2[k];
       (this.graph.node(source))["class"] = 'node-type-source';
     }
-    ref4 = this.graph.sinks();
-    for (n = 0, len5 = ref4.length; n < len5; n++) {
-      sink = ref4[n];
+    ref3 = this.graph.sinks();
+    for (l = 0, len3 = ref3.length; l < len3; l++) {
+      sink = ref3[l];
       (this.graph.node(sink))["class"] = 'node-type-sink';
     }
     return this.render();
   };
 
-  Renderer.prototype.insertNode = function(layer) {
+  Renderer.prototype.insertNode = function(node) {
     var nodeClass, nodeDesc;
-    nodeClass = 'node-type-' + layer.type.replace(/_/g, '-').toLowerCase();
+    nodeClass = 'node-type-' + node.type.replace(/_/g, '-').toLowerCase();
     nodeDesc = {
       labelType: 'html',
-      label: this.generateLabel(layer),
+      label: this.generateLabel(node),
       "class": nodeClass,
-      layers: [layer],
+      name: node.name,
+      type: node.type,
+      attribs: node.attribs,
       rx: 5,
       ry: 5
     };
@@ -2005,19 +2063,21 @@ module.exports = Renderer = (function() {
         shape: 'circle'
       });
     }
-    return this.graph.setNode(layer.name, nodeDesc);
+    return this.graph.setNode(node.name, nodeDesc);
   };
 
-  Renderer.prototype.generateLabel = function(layer) {
+  Renderer.prototype.generateLabel = function(node) {
     if (!this.iconify) {
-      return '<div class="node-label">' + layer.name + '</div>';
+      return '<div class="node-label">' + node.name + '</div>';
     } else {
       return '';
     }
   };
 
   Renderer.prototype.insertLink = function(src, dst) {
-    return this.graph.setEdge(src.name, dst.name);
+    return this.graph.setEdge(src.name, dst.name, {
+      arrowhead: 'vee'
+    });
   };
 
   Renderer.prototype.renderKey = function(key) {
@@ -2053,16 +2113,15 @@ module.exports = Renderer = (function() {
   };
 
   Renderer.prototype.tipForNode = function(nodeKey) {
-    var layer, node, s;
+    var node, s;
     node = this.graph.node(nodeKey);
-    layer = node.layers[0];
     s = '';
     s += '<div class="node-header">';
-    s += '<span class="node-title">' + layer.name + '</span>';
+    s += '<span class="node-title">' + node.name + '</span>';
     s += ' &middot; ';
-    s += '<span class="node-type">' + this.renderKey(layer.type) + '</span>';
+    s += '<span class="node-type">' + this.renderKey(node.type) + '</span>';
     s += '</div>';
-    s += this.renderSection(node.layers[0].params);
+    s += this.renderSection(node.attribs);
     return s;
   };
 
@@ -2111,4 +2170,4 @@ module.exports = Renderer = (function() {
 })();
 
 
-},{}]},{},[7]);
+},{}]},{},[6]);

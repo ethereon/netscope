@@ -1,4 +1,4 @@
-module.exports = 
+module.exports =
 class Loader
     constructor: (@parser) ->
         # The parser is a unary function that accepts the network source
@@ -34,9 +34,7 @@ class Loader
             @load data, callback
 
     load: (data, callback) =>
-        console.log 'Loading from ', data
         net = @parser.parse data
         if not _.isUndefined(callback)
             callback net
         return net
-        
