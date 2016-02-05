@@ -1,4 +1,224 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+var AppController, Editor, Renderer,
+  slice = [].slice;
+
+Renderer = require('./renderer.coffee');
+
+Editor = require('./editor.coffee');
+
+module.exports = AppController = (function() {
+  function AppController() {
+    this.inProgress = false;
+    this.$spinner = $('#net-spinner');
+    this.$netBox = $('#net-container');
+    this.$netError = $('#net-error');
+    this.svg = '#net-svg';
+    this.setupErrorHandler();
+  }
+
+  AppController.prototype.startLoading = function() {
+    var args, loader;
+    loader = arguments[0], args = 2 <= arguments.length ? slice.call(arguments, 1) : [];
+    if (this.inProgress) {
+      return;
+    }
+    this.$netError.hide();
+    this.$netBox.hide();
+    this.$spinner.show();
+    return loader.apply(null, slice.call(args).concat([(function(_this) {
+      return function(net) {
+        return _this.completeLoading(net);
+      };
+    })(this)]));
+  };
+
+  AppController.prototype.completeLoading = function(net) {
+    var renderer;
+    this.$spinner.hide();
+    $('#net-title').html(net.name.replace(/_/g, ' '));
+    this.$netBox.show();
+    $(this.svg).empty();
+    $('.qtip').remove();
+    renderer = new Renderer(net, this.svg);
+    return this.inProgress = false;
+  };
+
+  AppController.prototype.makeLoader = function(loader) {
+    return (function(_this) {
+      return function() {
+        var args;
+        args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
+        return _this.startLoading.apply(_this, [loader].concat(slice.call(args)));
+      };
+    })(this);
+  };
+
+  AppController.prototype.showEditor = function(loader) {
+    if (_.isUndefined(window.CodeMirror)) {
+      return $.getScript('assets/js/lib/codemirror.min.js', (function(_this) {
+        return function() {
+          return _this.netEditor = new Editor(_this.makeLoader(loader.load));
+        };
+      })(this));
+    }
+  };
+
+  AppController.prototype.setupErrorHandler = function() {
+    return window.onerror = (function(_this) {
+      return function(message, filename, lineno, colno, e) {
+        var msg;
+        msg = message;
+        if (!(_.isUndefined(e) || _.isUndefined(e.line) || _.isUndefined(e.column))) {
+          msg = _.template('Line ${line}, Column ${column}: ${message}')(e);
+        }
+        _this.$spinner.hide();
+        $('.msg', _this.$netError).html(msg);
+        _this.$netError.show();
+        return _this.inProgress = false;
+      };
+    })(this);
+  };
+
+  return AppController;
+
+})();
+
+
+},{"./editor.coffee":5,"./renderer.coffee":8}],2:[function(require,module,exports){
+var Layer;
+
+module.exports = Layer = (function() {
+  function Layer() {
+    this.params = {};
+  }
+
+  Layer.parseMultiple = function(desc) {
+    var entry, headerKeys, i, layer, layerDesc, layers, len;
+    layers = [];
+    for (i = 0, len = desc.length; i < len; i++) {
+      entry = desc[i];
+      layerDesc = entry.layer || entry.layers;
+      if (layerDesc != null) {
+        layer = new Layer;
+        headerKeys = ['name', 'type', 'top', 'bottom'];
+        _.extend(layer, _.pick(layerDesc, headerKeys));
+        layer.params = _.omit(layerDesc, headerKeys);
+        layers.push(layer);
+      } else {
+        console.log('Unidentified entry ignored: ', entry);
+      }
+    }
+    return layers;
+  };
+
+  Layer.createImplicit = function(name) {
+    var layer;
+    layer = new Layer;
+    layer.name = name;
+    layer.type = 'implicit';
+    return layer;
+  };
+
+  Layer.prototype.isInPlace = function() {
+    return (this.top != null) && (this.top === this.bottom);
+  };
+
+  return Layer;
+
+})();
+
+
+},{}],3:[function(require,module,exports){
+var CaffeNetwork, Layer, Parser;
+
+Layer = require('./layer.coffee');
+
+Parser = require('./parser');
+
+module.exports = CaffeNetwork = (function() {
+  function CaffeNetwork() {}
+
+  CaffeNetwork.prototype.processLayers = function(layers1, header) {
+    var dataLayer, dims, getLayers, getSingleLayer, i, implicitLayers, input, inputs, j, k, l, layer, len, len1, len2, ref, ref1, results;
+    this.layers = layers1;
+    this.layerTable = {};
+    implicitLayers = [];
+    getSingleLayer = (function(_this) {
+      return function(name) {
+        var layer;
+        layer = _this.layerTable[name];
+        if (layer == null) {
+          layer = Layer.createImplicit(name);
+          implicitLayers.push(layer);
+          _this.layerTable[name] = layer;
+        }
+        return layer;
+      };
+    })(this);
+    getLayers = (function(_this) {
+      return function(names) {
+        names = [].concat(names);
+        return _.map(names, getSingleLayer);
+      };
+    })(this);
+    ref = this.layers;
+    for (j = 0, len = ref.length; j < len; j++) {
+      layer = ref[j];
+      this.layerTable[layer.name] = layer;
+    }
+    ref1 = this.layers;
+    for (k = 0, len1 = ref1.length; k < len1; k++) {
+      layer = ref1[k];
+      if (layer.top != null) {
+        layer.outputs = getLayers(layer.top);
+      }
+      if (layer.bottom != null) {
+        layer.inputs = getLayers(layer.bottom);
+      }
+    }
+    Array.prototype.push.apply(this.layers, implicitLayers);
+    if (((header != null ? header.input : void 0) != null) && ((header != null ? header.input_dim : void 0) != null)) {
+      inputs = [].concat(header.input);
+      dims = header.input_dim;
+      if (inputs.length === (dims.length / 4)) {
+        results = [];
+        for (i = l = 0, len2 = inputs.length; l < len2; i = ++l) {
+          input = inputs[i];
+          dataLayer = this.layerTable[input];
+          dataLayer.type = 'data';
+          results.push(dataLayer.params.shape = dims.slice(i * 4, (i + 1) * 4));
+        }
+        return results;
+      } else {
+        return console.log('Inconsistent input dimensions.');
+      }
+    }
+  };
+
+  CaffeNetwork.parse = function(txt, phase) {
+    var header, layerDesc, layers, net, ref;
+    if (phase == null) {
+      phase = 'train';
+    }
+    ref = Parser.parse(txt), header = ref[0], layerDesc = ref[1];
+    layers = Layer.parseMultiple(layerDesc);
+    layers = _.filter(layers, function(layer) {
+      var layerPhase, ref1;
+      layerPhase = (ref1 = layer.params.include) != null ? ref1.phase : void 0;
+      return !((layerPhase != null) && layerPhase !== phase);
+    });
+    net = new CaffeNetwork();
+    net.name = header.name || 'Untitled Network';
+    net.processLayers(layers, header);
+    return net;
+  };
+
+  return CaffeNetwork;
+
+})();
+
+
+},{"./layer.coffee":2,"./parser":4}],4:[function(require,module,exports){
 module.exports = (function() {
 
   function peg$subclass(child, parent) {
@@ -1534,7 +1754,7 @@ module.exports = (function() {
   };
 })();
 
-},{}],2:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 var Editor;
 
 module.exports = Editor = (function() {
@@ -1570,142 +1790,122 @@ module.exports = Editor = (function() {
 })();
 
 
+},{}],6:[function(require,module,exports){
+var Loader,
+  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
 
-},{}],3:[function(require,module,exports){
-var Layer;
-
-module.exports = Layer = (function() {
-  function Layer() {
-    this.params = {};
+module.exports = Loader = (function() {
+  function Loader(parser) {
+    this.parser = parser;
+    this.load = bind(this.load, this);
+    this.fromPreset = bind(this.fromPreset, this);
+    this.fromURL = bind(this.fromURL, this);
+    this.fromGist = bind(this.fromGist, this);
   }
 
-  Layer.parseMultiple = function(desc) {
-    var entry, headerKeys, i, layer, layerDesc, layers, len;
-    layers = [];
-    for (i = 0, len = desc.length; i < len; i++) {
-      entry = desc[i];
-      layerDesc = entry.layer || entry.layers;
-      if (layerDesc != null) {
-        layer = new Layer;
-        headerKeys = ['name', 'type', 'top', 'bottom'];
-        _.extend(layer, _.pick(layerDesc, headerKeys));
-        layer.params = _.omit(layerDesc, headerKeys);
-        layers.push(layer);
-      } else {
-        console.log('Unidentified entry ignored: ', entry);
-      }
-    }
-    return layers;
-  };
-
-  Layer.createImplicit = function(name) {
-    var layer;
-    layer = new Layer;
-    layer.name = name;
-    layer.type = 'implicit';
-    return layer;
-  };
-
-  Layer.prototype.isInPlace = function() {
-    return (this.top != null) && (this.top === this.bottom);
-  };
-
-  return Layer;
-
-})();
-
-
-
-},{}],4:[function(require,module,exports){
-var Layer, Network;
-
-Layer = require('./layer.coffee');
-
-module.exports = Network = (function() {
-  function Network() {}
-
-  Network.prototype.processLayers = function(layers1, header) {
-    var dataLayer, dims, getLayers, getSingleLayer, i, implicitLayers, input, inputs, j, k, l, layer, len, len1, len2, ref, ref1, results;
-    this.layers = layers1;
-    this.layerTable = {};
-    implicitLayers = [];
-    getSingleLayer = (function(_this) {
-      return function(name) {
-        var layer;
-        layer = _this.layerTable[name];
-        if (layer == null) {
-          layer = Layer.createImplicit(name);
-          implicitLayers.push(layer);
-          _this.layerTable[name] = layer;
+  Loader.prototype.fromGist = function(gistID, callback) {
+    var url;
+    url = 'https://api.github.com/gists/' + gistID;
+    return $.getJSON(url, (function(_this) {
+      return function(data) {
+        var fileInfo, fileKey, fileSet, filename, isProto, isSolitaryFile, isSolver;
+        fileSet = data['files'];
+        isSolitaryFile = Object.keys(fileSet).length === 1;
+        for (fileKey in fileSet) {
+          fileInfo = fileSet[fileKey];
+          filename = fileInfo['filename'].toLowerCase();
+          isProto = _.endsWith(filename, '.prototxt');
+          isSolver = _.startsWith(filename, 'solver');
+          if ((isProto && !isSolver) || isSolitaryFile) {
+            _this.load(fileInfo['content'], callback);
+            return;
+          }
         }
-        return layer;
+        return console.log('No prototxt found in the given GIST.');
       };
-    })(this);
-    getLayers = (function(_this) {
-      return function(names) {
-        names = [].concat(names);
-        return _.map(names, getSingleLayer);
-      };
-    })(this);
-    ref = this.layers;
-    for (j = 0, len = ref.length; j < len; j++) {
-      layer = ref[j];
-      this.layerTable[layer.name] = layer;
-    }
-    ref1 = this.layers;
-    for (k = 0, len1 = ref1.length; k < len1; k++) {
-      layer = ref1[k];
-      if (layer.top != null) {
-        layer.outputs = getLayers(layer.top);
-      }
-      if (layer.bottom != null) {
-        layer.inputs = getLayers(layer.bottom);
-      }
-    }
-    Array.prototype.push.apply(this.layers, implicitLayers);
-    if (((header != null ? header.input : void 0) != null) && ((header != null ? header.input_dim : void 0) != null)) {
-      inputs = [].concat(header.input);
-      dims = header.input_dim;
-      if (inputs.length === (dims.length / 4)) {
-        results = [];
-        for (i = l = 0, len2 = inputs.length; l < len2; i = ++l) {
-          input = inputs[i];
-          dataLayer = this.layerTable[input];
-          dataLayer.type = 'data';
-          results.push(dataLayer.params.shape = dims.slice(i * 4, (i + 1) * 4));
-        }
-        return results;
-      } else {
-        return console.log('Inconsistent input dimensions.');
-      }
-    }
+    })(this));
   };
 
-  Network.fromCaffe = function(desc, phase) {
-    var header, layerDesc, layers, net;
-    if (phase == null) {
-      phase = 'train';
-    }
-    header = desc[0], layerDesc = desc[1];
-    layers = Layer.parseMultiple(layerDesc);
-    layers = _.filter(layers, function(layer) {
-      var layerPhase, ref;
-      layerPhase = (ref = layer.params.include) != null ? ref.phase : void 0;
-      return !((layerPhase != null) && layerPhase !== phase);
+  Loader.prototype.fromURL = function(url, callback) {
+    return $.ajax({
+      url: url,
+      success: (function(_this) {
+        return function() {
+          return _this.load(data, callback);
+        };
+      })(this)
     });
-    net = new Network();
-    net.name = header.name || 'Untitled Network';
-    net.processLayers(layers, header);
+  };
+
+  Loader.prototype.fromPreset = function(name, callback) {
+    return $.get('./presets/' + name + '.prototxt', (function(_this) {
+      return function(data) {
+        return _this.load(data, callback);
+      };
+    })(this));
+  };
+
+  Loader.prototype.load = function(data, callback) {
+    var net;
+    console.log('Loading from ', data);
+    net = this.parser.parse(data);
+    if (!_.isUndefined(callback)) {
+      callback(net);
+    }
     return net;
   };
 
-  return Network;
+  return Loader;
 
 })();
 
 
+},{}],7:[function(require,module,exports){
+var AppController, CaffeNetwork, Loader, showDocumentation,
+  slice = [].slice;
 
-},{"./layer.coffee":3}],5:[function(require,module,exports){
+AppController = require('./app.coffee');
+
+CaffeNetwork = require('./caffe/network.coffee');
+
+Loader = require('./loader.coffee');
+
+showDocumentation = function() {
+  return window.location.href = 'quickstart.html';
+};
+
+$(document).ready(function() {
+  var app, loader, makeLoader, router, routes;
+  app = new AppController();
+  loader = new Loader(CaffeNetwork);
+  makeLoader = function(loadingFunc) {
+    return function() {
+      var args;
+      args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
+      return app.startLoading.apply(app, [loadingFunc].concat(slice.call(args)));
+    };
+  };
+  routes = {
+    '/gist/:gistID': makeLoader(loader.fromGist),
+    '/url/(.+)': makeLoader(loader.fromURL),
+    '/preset/:name': makeLoader(loader.fromPreset),
+    '/editor(/?)': (function(_this) {
+      return function() {
+        return app.showEditor(loader);
+      };
+    })(this),
+    '/doc': (function(_this) {
+      return function() {
+        return showDocumentation();
+      };
+    })(this)
+  };
+  router = Router(routes);
+  return router.init('/doc');
+});
+
+
+},{"./app.coffee":1,"./caffe/network.coffee":3,"./loader.coffee":6}],8:[function(require,module,exports){
 var INPLACE_FUSE, INPLACE_HIDE, INPLACE_NONE, Renderer,
   indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; },
   hasProp = {}.hasOwnProperty;
@@ -1911,181 +2111,4 @@ module.exports = Renderer = (function() {
 })();
 
 
-
-},{}],6:[function(require,module,exports){
-var CaffeParser, Network, fromProtoText;
-
-CaffeParser = require('./caffe-parser');
-
-Network = require('./network.coffee');
-
-fromProtoText = function(txt, callback) {
-  var net;
-  net = Network.fromCaffe(CaffeParser.parse(txt));
-  if (!_.isUndefined(callback)) {
-    callback(net);
-  }
-  return net;
-};
-
-exports.fromProtoText = fromProtoText;
-
-exports.fromGist = function(gistID, callback) {
-  var url;
-  url = 'https://api.github.com/gists/' + gistID;
-  return $.getJSON(url, function(data) {
-    var fileInfo, fileKey, fileSet, filename, isProto, isSolitaryFile, isSolver;
-    fileSet = data['files'];
-    isSolitaryFile = Object.keys(fileSet).length === 1;
-    for (fileKey in fileSet) {
-      fileInfo = fileSet[fileKey];
-      filename = fileInfo['filename'].toLowerCase();
-      isProto = _.endsWith(filename, '.prototxt');
-      isSolver = _.startsWith(filename, 'solver');
-      if ((isProto && !isSolver) || isSolitaryFile) {
-        callback(fromProtoText(fileInfo['content']));
-        return;
-      }
-    }
-    return console.log('No prototxt found in the given GIST.');
-  });
-};
-
-exports.fromURL = function(url, callback) {
-  return $.ajax({
-    url: url,
-    success: function() {
-      return callback(fromProtoText(data));
-    }
-  });
-};
-
-exports.fromPreset = function(name, callback) {
-  return $.get('./presets/' + name + '.prototxt', function(data) {
-    return callback(fromProtoText(data));
-  });
-};
-
-
-
-},{"./caffe-parser":1,"./network.coffee":4}],7:[function(require,module,exports){
-var AppController, Editor, Renderer, Source,
-  slice = [].slice;
-
-Source = require('./source.coffee');
-
-Renderer = require('./renderer.coffee');
-
-Editor = require('./editor.coffee');
-
-AppController = (function() {
-  function AppController() {
-    this.inProgress = false;
-    this.$spinner = $('#net-spinner');
-    this.$netBox = $('#net-container');
-    this.$netError = $('#net-error');
-    this.svg = '#net-svg';
-    this.setupErrorHandler();
-    this.setupRoutes();
-  }
-
-  AppController.prototype.startLoading = function() {
-    var args, loader;
-    loader = arguments[0], args = 2 <= arguments.length ? slice.call(arguments, 1) : [];
-    if (this.inProgress) {
-      return;
-    }
-    this.$netError.hide();
-    this.$netBox.hide();
-    this.$spinner.show();
-    return loader.apply(null, slice.call(args).concat([(function(_this) {
-      return function(net) {
-        return _this.completeLoading(net);
-      };
-    })(this)]));
-  };
-
-  AppController.prototype.completeLoading = function(net) {
-    var renderer;
-    this.$spinner.hide();
-    $('#net-title').html(net.name.replace(/_/g, ' '));
-    this.$netBox.show();
-    $(this.svg).empty();
-    $('.qtip').remove();
-    renderer = new Renderer(net, this.svg);
-    return this.inProgress = false;
-  };
-
-  AppController.prototype.makeLoader = function(loader) {
-    return (function(_this) {
-      return function() {
-        var args;
-        args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
-        return _this.startLoading.apply(_this, [loader].concat(slice.call(args)));
-      };
-    })(this);
-  };
-
-  AppController.prototype.showEditor = function() {
-    var loader;
-    loader = this.makeLoader(Source.fromProtoText);
-    if (_.isUndefined(window.CodeMirror)) {
-      return $.getScript('assets/js/lib/codemirror.min.js', function() {
-        return this.netEditor = new Editor(loader);
-      });
-    }
-  };
-
-  AppController.prototype.showDocumentation = function() {
-    return window.location.href = 'quickstart.html';
-  };
-
-  AppController.prototype.setupErrorHandler = function() {
-    return window.onerror = (function(_this) {
-      return function(message, filename, lineno, colno, e) {
-        var msg;
-        msg = message;
-        if (!(_.isUndefined(e) || _.isUndefined(e.line) || _.isUndefined(e.column))) {
-          msg = _.template('Line ${line}, Column ${column}: ${message}')(e);
-        }
-        _this.$spinner.hide();
-        $('.msg', _this.$netError).html(msg);
-        _this.$netError.show();
-        return _this.inProgress = false;
-      };
-    })(this);
-  };
-
-  AppController.prototype.setupRoutes = function() {
-    var routes;
-    routes = {
-      '/gist/:gistID': this.makeLoader(Source.fromGist),
-      '/url/(.+)': this.makeLoader(Source.fromURL),
-      '/preset/:name': this.makeLoader(Source.fromPreset),
-      '/editor(/?)': (function(_this) {
-        return function() {
-          return _this.showEditor();
-        };
-      })(this),
-      '/doc': (function(_this) {
-        return function() {
-          return _this.showDocumentation();
-        };
-      })(this)
-    };
-    this.router = Router(routes);
-    return this.router.init('/doc');
-  };
-
-  return AppController;
-
-})();
-
-$(document).ready(function() {
-  var app;
-  return app = new AppController();
-});
-
-
-
-},{"./editor.coffee":2,"./renderer.coffee":5,"./source.coffee":6}]},{},[7]);
+},{}]},{},[7]);

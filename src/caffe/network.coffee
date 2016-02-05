@@ -1,7 +1,8 @@
 Layer = require './layer.coffee'
+Parser = require './parser'
 
 module.exports =
-class Network
+class CaffeNetwork
 
     processLayers: (@layers, header) ->
         @layerTable = {}
@@ -41,14 +42,14 @@ class Network
             else
                 console.log 'Inconsistent input dimensions.'
 
-    @fromCaffe: (desc, phase) ->
+    @parse: (txt, phase) ->
         phase ?= 'train'
-        [header, layerDesc] = desc
+        [header, layerDesc] = Parser.parse txt
         layers = Layer.parseMultiple layerDesc
         layers = _.filter layers, (layer) ->
             layerPhase = layer.params.include?.phase
             not (layerPhase? and layerPhase!=phase)
-        net = new Network()
+        net = new CaffeNetwork()
         net.name = header.name or 'Untitled Network'
         net.processLayers layers, header
         return net
