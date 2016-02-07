@@ -139,7 +139,7 @@ h1, h2, h3 {
     fill: #554037;
     stroke-width: 1.5px;
 }
-.node-header {
+.node-info-header {
 }
 .node-param-row {
 }
@@ -153,9 +153,17 @@ h1, h2, h3 {
 .node-param-value {
     color: #26BF8C;
 }
-.node-title {
+.node-info-title {
     color:#F7BF57;
 }
-.node-type {
+.node-info-type {
     color: #C499FF;
+}
+.node-info-annotation {
+    color: #69BFFF;
+}
+.node-info-group:not(:first-child) {
+    padding-top:5px;
+    margin-top:10px;
+    border-top: 1px dotted #52637D;
 }

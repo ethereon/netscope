@@ -1,12 +1,7 @@
-INPLACE_FUSE = 1
-INPLACE_HIDE = 2
-INPLACE_NONE = 3
-
 module.exports =
 class Renderer
     constructor: (@net, @parent) ->
         @iconify = false
-        @inplaceMode = INPLACE_FUSE
         @layoutDirection = 'tb'
         @generateGraph()
 
@@ -15,19 +10,28 @@ class Renderer
         @graph.setDefaultEdgeLabel ( -> {} )
         @graph.setGraph
             rankdir: @layoutDirection
-            ranksep: 50, # Vertical node separation
+            ranksep: 30, # Vertical node separation
             nodesep: 10, # Horizontal node separation
-            edgesep: 30, # Horizontal edge separation
+            edgesep: 20, # Horizontal edge separation
             marginx:  0, # Horizontal graph margin
             marginy:  0  # Vertical graph margin
 
     generateGraph: ->
         @setupGraph()
-        # TODO: Topologically sort the nodes.
-        # For now, they are topologically sorted by construction.
-        # However, for future sources, this may not be the case.
-        for node in @net.nodes
-            @insertNode node
+        nodes = @net.sortTopologically()
+        for node in nodes
+            if node.isInGraph
+                continue
+            layers = [node].concat node.coalesce
+            if layers.length>1
+                # Rewire the node following the last coalesced node to this one
+                lastCoalesed = layers[layers.length-1]
+                for child in lastCoalesed.children
+                    uberParents = _.clone child.parents
+                    uberParents[uberParents.indexOf lastCoalesed] = node
+                    child.parents = uberParents
+            @insertNode layers
+
             for parent in node.parents
                 @insertLink parent, node
         for source in @graph.sources()
@@ -36,25 +40,28 @@ class Renderer
             (@graph.node sink).class = 'node-type-sink'
         @render()
 
-    insertNode: (node) ->
-        nodeClass = 'node-type-'+node.type.replace(/_/g, '-').toLowerCase()
+    insertNode: (layers) ->
+        baseNode = layers[0]
+        nodeClass = 'node-type-'+baseNode.type.replace(/_/g, '-').toLowerCase()
+        nodeLabel = ''
+        for layer in layers
+            layer.isInGraph = true
+            nodeLabel += @generateLabel layer
         nodeDesc =
-            labelType : 'html'
-            label     : @generateLabel node
-            class     : nodeClass
-            name      : node.name
-            type      : node.type
-            attribs   : node.attribs
-            rx        : 5
-            ry        : 5
+            labelType   : 'html'
+            label       : nodeLabel
+            class       : nodeClass
+            layers      : layers
+            rx          : 5
+            ry          : 5
         if @iconify
             _.extend nodeDesc,
                 shape: 'circle'
-        @graph.setNode node.name, nodeDesc
+        @graph.setNode baseNode.name, nodeDesc
 
-    generateLabel: (node) ->
+    generateLabel: (layer) ->
         if not @iconify
-            '<div class="node-label">'+node.name+'</div>'
+            '<div class="node-label">'+layer.name+'</div>'
         else
             ''
 
@@ -89,12 +96,16 @@ class Renderer
     tipForNode: (nodeKey) ->
         node = @graph.node nodeKey
         s = ''
-        s += '<div class="node-header">'
-        s += '<span class="node-title">'+node.name+'</span>'
-        s += ' &middot; '
-        s += '<span class="node-type">'+@renderKey(node.type)+'</span>'
-        s += '</div>'
-        s += @renderSection node.attribs
+        for layer in node.layers
+            s += '<div class="node-info-group">'
+            s += '<div class="node-info-header">'
+            s += '<span class="node-info-title">'+layer.name+'</span>'
+            s += ' &middot; '
+            s += '<span class="node-info-type">'+@renderKey(layer.type)+'</span>'
+            if layer.annotation?
+                s += ' &middot; <span class="node-info-annotation">'+layer.annotation+'</span>'
+            s += '</div>'
+            s += @renderSection layer.attribs
         return s
 
     render: ->

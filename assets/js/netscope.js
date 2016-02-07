@@ -120,7 +120,7 @@ generateLayers = function(descriptors, phase) {
 };
 
 generateNetwork = function(layers, header) {
-  var children, curNode, dataNode, dims, getNodes, getSingleNode, i, implicitLayers, inplaceChild, inplaceTable, input, inputs, j, k, l, layer, len, len1, len2, len3, m, n, net, node, nodeTable, v;
+  var children, curNode, dataNode, dims, getNodes, getSingleNode, i, implicitLayers, inplaceChild, inplaceOps, inplaceTable, input, inputs, j, k, l, layer, len, len1, len2, len3, m, n, net, node, nodeTable;
   nodeTable = {};
   implicitLayers = [];
   net = new Network(header.name);
@@ -169,11 +169,13 @@ generateNetwork = function(layers, header) {
   }
   for (k in inplaceTable) {
     if (!hasProp.call(inplaceTable, k)) continue;
-    v = inplaceTable[k];
+    inplaceOps = inplaceTable[k];
     curNode = nodeTable[k];
+    curNode.coalesce = inplaceOps;
     children = curNode.detachChildren();
-    for (m = 0, len2 = v.length; m < len2; m++) {
-      inplaceChild = v[m];
+    for (m = 0, len2 = inplaceOps.length; m < len2; m++) {
+      inplaceChild = inplaceOps[m];
+      inplaceChild.annotation = 'InPlace';
       curNode.addChild(inplaceChild);
       curNode = inplaceChild;
     }
@@ -1915,6 +1917,7 @@ Node = (function() {
     this.addChild = bind(this.addChild, this);
     this.parents = [];
     this.children = [];
+    this.coalesce = [];
   }
 
   Node.prototype.addChild = function(child) {
@@ -1969,6 +1972,7 @@ Node = (function() {
 module.exports = Network = (function() {
   function Network(name) {
     this.name = name != null ? name : 'Untitled Network';
+    this.sortTopologically = bind(this.sortTopologically, this);
     this.nodes = [];
   }
 
@@ -1979,27 +1983,59 @@ module.exports = Network = (function() {
     return node;
   };
 
+  Network.prototype.sortTopologically = function() {
+    var i, j, len, len1, node, sortedNodes, unsortedNodes, visit;
+    sortedNodes = [];
+    unsortedNodes = _.clone(this.nodes);
+    for (i = 0, len = unsortedNodes.length; i < len; i++) {
+      node = unsortedNodes[i];
+      node.sort_ = {
+        temp: false,
+        perm: false
+      };
+    }
+    visit = function(node) {
+      var child, j, len1, ref;
+      if (node.sort_.temp === true) {
+        throw "Graph is not a DAG.";
+      }
+      if (node.sort_.perm) {
+        return;
+      }
+      node.sort_.temp = true;
+      ref = node.children;
+      for (j = 0, len1 = ref.length; j < len1; j++) {
+        child = ref[j];
+        visit(child);
+      }
+      node.sort_.perm = true;
+      node.sort_.temp = false;
+      return sortedNodes.unshift(node);
+    };
+    while (unsortedNodes.length !== 0) {
+      visit(unsortedNodes.pop());
+    }
+    for (j = 0, len1 = sortedNodes.length; j < len1; j++) {
+      node = sortedNodes[j];
+      delete node.sort_;
+    }
+    return sortedNodes;
+  };
+
   return Network;
 
 })();
 
 
 },{}],8:[function(require,module,exports){
-var INPLACE_FUSE, INPLACE_HIDE, INPLACE_NONE, Renderer,
+var Renderer,
   hasProp = {}.hasOwnProperty;
-
-INPLACE_FUSE = 1;
-
-INPLACE_HIDE = 2;
-
-INPLACE_NONE = 3;
 
 module.exports = Renderer = (function() {
   function Renderer(net, parent1) {
     this.net = net;
     this.parent = parent1;
     this.iconify = false;
-    this.inplaceMode = INPLACE_FUSE;
     this.layoutDirection = 'tb';
     this.generateGraph();
   }
@@ -2011,50 +2047,69 @@ module.exports = Renderer = (function() {
     }));
     return this.graph.setGraph({
       rankdir: this.layoutDirection,
-      ranksep: 50,
+      ranksep: 30,
       nodesep: 10,
-      edgesep: 30,
+      edgesep: 20,
       marginx: 0,
       marginy: 0
     });
   };
 
   Renderer.prototype.generateGraph = function() {
-    var i, j, k, l, len, len1, len2, len3, node, parent, ref, ref1, ref2, ref3, sink, source;
+    var child, i, j, k, l, lastCoalesed, layers, len, len1, len2, len3, len4, m, node, nodes, parent, ref, ref1, ref2, ref3, sink, source, uberParents;
     this.setupGraph();
-    ref = this.net.nodes;
-    for (i = 0, len = ref.length; i < len; i++) {
-      node = ref[i];
-      this.insertNode(node);
+    nodes = this.net.sortTopologically();
+    for (i = 0, len = nodes.length; i < len; i++) {
+      node = nodes[i];
+      if (node.isInGraph) {
+        continue;
+      }
+      layers = [node].concat(node.coalesce);
+      if (layers.length > 1) {
+        lastCoalesed = layers[layers.length - 1];
+        ref = lastCoalesed.children;
+        for (j = 0, len1 = ref.length; j < len1; j++) {
+          child = ref[j];
+          uberParents = _.clone(child.parents);
+          uberParents[uberParents.indexOf(lastCoalesed)] = node;
+          child.parents = uberParents;
+        }
+      }
+      this.insertNode(layers);
       ref1 = node.parents;
-      for (j = 0, len1 = ref1.length; j < len1; j++) {
-        parent = ref1[j];
+      for (k = 0, len2 = ref1.length; k < len2; k++) {
+        parent = ref1[k];
         this.insertLink(parent, node);
       }
     }
     ref2 = this.graph.sources();
-    for (k = 0, len2 = ref2.length; k < len2; k++) {
-      source = ref2[k];
+    for (l = 0, len3 = ref2.length; l < len3; l++) {
+      source = ref2[l];
       (this.graph.node(source))["class"] = 'node-type-source';
     }
     ref3 = this.graph.sinks();
-    for (l = 0, len3 = ref3.length; l < len3; l++) {
-      sink = ref3[l];
+    for (m = 0, len4 = ref3.length; m < len4; m++) {
+      sink = ref3[m];
       (this.graph.node(sink))["class"] = 'node-type-sink';
     }
     return this.render();
   };
 
-  Renderer.prototype.insertNode = function(node) {
-    var nodeClass, nodeDesc;
-    nodeClass = 'node-type-' + node.type.replace(/_/g, '-').toLowerCase();
+  Renderer.prototype.insertNode = function(layers) {
+    var baseNode, i, layer, len, nodeClass, nodeDesc, nodeLabel;
+    baseNode = layers[0];
+    nodeClass = 'node-type-' + baseNode.type.replace(/_/g, '-').toLowerCase();
+    nodeLabel = '';
+    for (i = 0, len = layers.length; i < len; i++) {
+      layer = layers[i];
+      layer.isInGraph = true;
+      nodeLabel += this.generateLabel(layer);
+    }
     nodeDesc = {
       labelType: 'html',
-      label: this.generateLabel(node),
+      label: nodeLabel,
       "class": nodeClass,
-      name: node.name,
-      type: node.type,
-      attribs: node.attribs,
+      layers: layers,
       rx: 5,
       ry: 5
     };
@@ -2063,12 +2118,12 @@ module.exports = Renderer = (function() {
         shape: 'circle'
       });
     }
-    return this.graph.setNode(node.name, nodeDesc);
+    return this.graph.setNode(baseNode.name, nodeDesc);
   };
 
-  Renderer.prototype.generateLabel = function(node) {
+  Renderer.prototype.generateLabel = function(layer) {
     if (!this.iconify) {
-      return '<div class="node-label">' + node.name + '</div>';
+      return '<div class="node-label">' + layer.name + '</div>';
     } else {
       return '';
     }
@@ -2113,15 +2168,23 @@ module.exports = Renderer = (function() {
   };
 
   Renderer.prototype.tipForNode = function(nodeKey) {
-    var node, s;
+    var i, layer, len, node, ref, s;
     node = this.graph.node(nodeKey);
     s = '';
-    s += '<div class="node-header">';
-    s += '<span class="node-title">' + node.name + '</span>';
-    s += ' &middot; ';
-    s += '<span class="node-type">' + this.renderKey(node.type) + '</span>';
-    s += '</div>';
-    s += this.renderSection(node.attribs);
+    ref = node.layers;
+    for (i = 0, len = ref.length; i < len; i++) {
+      layer = ref[i];
+      s += '<div class="node-info-group">';
+      s += '<div class="node-info-header">';
+      s += '<span class="node-info-title">' + layer.name + '</span>';
+      s += ' &middot; ';
+      s += '<span class="node-info-type">' + this.renderKey(layer.type) + '</span>';
+      if (layer.annotation != null) {
+        s += ' &middot; <span class="node-info-annotation">' + layer.annotation + '</span>';
+      }
+      s += '</div>';
+      s += this.renderSection(layer.attribs);
+    }
     return s;
   };
 

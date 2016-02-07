@@ -58,10 +58,12 @@ generateNetwork = (layers, header) ->
         if layer.bottom?
             node.addParents getNodes(layer.bottom, [].concat layer.top)
     # Splice in the inplace nodes.
-    for own k, v of inplaceTable
+    for own k, inplaceOps of inplaceTable
         curNode = nodeTable[k]
+        curNode.coalesce = inplaceOps
         children = curNode.detachChildren()
-        for inplaceChild in v
+        for inplaceChild in inplaceOps
+            inplaceChild.annotation = 'InPlace'
             curNode.addChild inplaceChild
             curNode = inplaceChild
         curNode.addChildren children
