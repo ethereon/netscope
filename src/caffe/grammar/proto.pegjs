@@ -1,17 +1,19 @@
 Proto_text
-    = wsc doc:doc wsc { return doc; }
+  = wsc doc:doc wsc { return doc; }
 
-ws "whitespace" = [ \t\n\r]*
+ws "whitespace"
+  = [ \t\n\r]*
+
 wsc "whitespace or comment"
   = ws (comment)* ws
 
 doc
-    = first:value
-      rest:(wsc v:value { return v; })*
+  = first:value
+    rest:(wsc v:value { return v; })*
 
 value
-    = object
-    / pairs
+  = object
+  / pairs
 
 comment "comment"
   = ws "#" (!LineTerminator .)*
@@ -20,29 +22,30 @@ pairs
   = first:pair
     rest:(wsc m:pair { return m; })*
     {
-        var result = {};
-        var kvPairs = [first].concat(rest);
-        for (var i = 0; i < kvPairs.length; i++)
+      var result = {};
+      var kvPairs = [first].concat(rest);
+      for (var i = 0; i < kvPairs.length; i++)
+      {
+        var k = kvPairs[i].key;
+        var v = kvPairs[i].value;
+        if(k in result)
         {
-            var k = kvPairs[i].key;
-            var v = kvPairs[i].value;
-            if(k in result)
-            {
-                result[k] = [].concat(result[k]);
-                result[k].push(v);
-            }
-            else
-            {
-                result[k] = v;
-            }
+          result[k] = [].concat(result[k]);
+          result[k].push(v);
+      }
+        else
+        {
+          result[k] = v;
         }
-        return result;
-    }
+      }
+      return result;
+  }
 
-pair = key:key ws ":" ws value:(string / number / key)
-{
+pair
+  = key:key ws ":" ws value:(string / number / key )
+  {
     return {key: key, value: value};
-}
+  }
 
 object
   = key:key ws ":"? ws "{" wsc
@@ -65,64 +68,73 @@ object
     }
 
 member
-    = (comment / pairs / object )
+  = (comment / pairs / object )
 
 number "number"
-    = minus? int frac? exp? { return parseFloat(text()); }
+  = minus? int frac? exp? { return parseFloat(text()); }
 
-decimal_point = "."
-digit1_9      = [1-9]
-e             = [eE]
-exp           = e (minus / plus)? DIGIT+
-frac          = decimal_point DIGIT+
-int           = zero / (digit1_9 DIGIT*)
-minus         = "-"
-plus          = "+"
-zero          = "0"
+exp
+  = [eE] (minus / plus)? Digit+
+
+frac
+  = "." Digit+
+
+int
+  = "0" / ([1-9] Digit*)
+
+minus
+  = "-"
+
+plus
+  = "+"
 
 string
   = sstring
   / dstring
 
 sstring
-    = "'" chars:schar* "'" { return chars.join(""); }
+  = "'" chars:schar* "'" { return chars.join(""); }
 
 dstring
-    = '"' chars:dchar* '"' { return chars.join(""); }
+  = '"' chars:dchar* '"' { return chars.join(""); }
 
 key "key"
-    = chars:[a-zA-Z0-9_-]+ { return chars.join("").toLowerCase(); }
+  = chars:[a-zA-Z0-9_-]+ { return chars.join("").toLowerCase(); }
 
 dchar "double-quoted string character"
-    = [\x20-\x21\x23-\x5B\x5D-\u10FFFF]
-    / echar
+  = [\x20-\x21\x23-\x5B\x5D-\u10FFFF]
+  / echar
 
 schar "single-quoted string character"
-    = [\x20-\x26\x28-\x5B\x5D-\u10FFFF]
-    / echar
+  = [\x20-\x26\x28-\x5B\x5D-\u10FFFF]
+  / echar
 
-echar = escape
-      sequence:(
-          '"'
-        / "'"
-        / "\\"
-        / "/"
-        / "b" { return "\b"; }
-        / "f" { return "\f"; }
-        / "n" { return "\n"; }
-        / "r" { return "\r"; }
-        / "t" { return "\t"; }
-        / "u" digits:$(HEXDIG HEXDIG HEXDIG HEXDIG)
-        {
-            return String.fromCharCode(parseInt(digits, 16));
-        }
-      )
+echar "escaped character sequence"
+  = "\\"
+    sequence:(
+    '"'
+    / "'"
+    / "\\"
+    / "/"
+    / "b" { return "\b"; }
+    / "f" { return "\f"; }
+    / "n" { return "\n"; }
+    / "r" { return "\r"; }
+    / "t" { return "\t"; }
+    / "u" digits:$(HexDigit HexDigit HexDigit HexDigit)
       {
-          return sequence;
+        return String.fromCharCode(parseInt(digits, 16));
       }
+    )
+  {
+    return sequence;
+  }
 
-escape         = "\\"
-DIGIT          = [0-9]
-HEXDIG         = [0-9a-f]i
+Digit
+  = [0-9]
+
+HexDigit
+  = [0-9a-f]i
+
 LineTerminator
   = [\n\r\u2028\u2029]
