@@ -42,10 +42,18 @@ pairs
   }
 
 pair
-  = key:key ws ":" ws value:(string / number / key )
+  = key:key ws ":" ws value:(string / number / key / list )
   {
     return {key: key, value: value};
   }
+
+list
+  = "["
+    entries:(ws v:(string / number) ws ","? { return v; })*
+    ws "]"
+    {
+      return entries;
+    }
 
 object
   = key:key ws ":"? ws "{" wsc
