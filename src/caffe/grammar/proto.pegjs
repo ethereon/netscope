@@ -22,7 +22,7 @@ pairs
     {
         var result = {};
         var kvPairs = [first].concat(rest);
-        for (i = 0; i < kvPairs.length; i++)
+        for (var i = 0; i < kvPairs.length; i++)
         {
             var k = kvPairs[i].key;
             var v = kvPairs[i].value;
