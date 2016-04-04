@@ -115,11 +115,14 @@ class Renderer
         graphRender svgGroup, @graph
 
         # Size to fit.
+        # TODO: Find a more robust way of doing this.
         # getBBox appears to do the right thing on Chrome,
         # but not on Firefox. getBoundingClientRect works on both.
         bbox = svgGroup.node().getBoundingClientRect()
-        svg.attr('width', bbox.width)
-        svg.attr('height', bbox.height)
+        # On Chrome, the bounding box may be off by a stroke-width.
+        margin = 2
+        svg.attr('width', Math.ceil(bbox.width)+margin)
+        svg.attr('height', Math.ceil(bbox.height)+margin)
 
         # Configure Tooltips.
         tipPositions =

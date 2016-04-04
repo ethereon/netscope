@@ -2326,14 +2326,15 @@ module.exports = Renderer = (function() {
   };
 
   Renderer.prototype.render = function() {
-    var bbox, graphRender, svg, svgGroup, that, tipPositions;
+    var bbox, graphRender, margin, svg, svgGroup, that, tipPositions;
     svg = d3.select(this.parent);
     svgGroup = svg.append('g');
     graphRender = new dagreD3.render();
     graphRender(svgGroup, this.graph);
     bbox = svgGroup.node().getBoundingClientRect();
-    svg.attr('width', bbox.width);
-    svg.attr('height', bbox.height);
+    margin = 2;
+    svg.attr('width', Math.ceil(bbox.width) + margin);
+    svg.attr('height', Math.ceil(bbox.height) + margin);
     tipPositions = {
       tb: {
         my: 'left center',
