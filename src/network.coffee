@@ -49,7 +49,7 @@ class Network
             node.sort_ = {temp:false, perm: false}
         visit = (node) ->
             if node.sort_.temp==true
-                throw "Graph is not a DAG."
+                throw 'Graph is not a DAG. Complicit node: ' + node.name
             if node.sort_.perm
                 return
             node.sort_.temp = true
