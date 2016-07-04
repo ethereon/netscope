@@ -1,0 +1,22 @@
+{
+  "name": "netscope",
+  "version": "0.9.0",
+  "description": "Network visualization tool",
+  "scripts": {
+    "start": "watchify -v -t coffeeify src/netscope.coffee -o assets/js/netscope.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ethereon/netscope.git"
+  },
+  "author": "Saumitro Dasgupta",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ethereon/netscope/issues"
+  },
+  "homepage": "https://github.com/ethereon/netscope#readme",
+  "devDependencies": {
+    "coffeeify": "^2.0.1",
+    "watchify": "^3.7.0"
+  }
+}

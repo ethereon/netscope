@@ -2331,10 +2331,11 @@ module.exports = Renderer = (function() {
     svgGroup = svg.append('g');
     graphRender = new dagreD3.render();
     graphRender(svgGroup, this.graph);
-    bbox = svgGroup.node().getBoundingClientRect();
-    margin = 2;
-    svg.attr('width', Math.ceil(bbox.width) + margin);
-    svg.attr('height', Math.ceil(bbox.height) + margin);
+    bbox = svgGroup.node().getBBox();
+    svgGroup.attr('transform', 'translate(' + Math.ceil(-bbox.x) + ')');
+    margin = 5;
+    svg.attr('width', Math.ceil(bbox.width + 2 * margin));
+    svg.attr('height', Math.ceil(bbox.height + 2 * margin));
     tipPositions = {
       tb: {
         my: 'left center',
