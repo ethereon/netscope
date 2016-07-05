@@ -303,7 +303,15 @@ module.exports = (function() {
               {
                   for(var k in elems[i])
                   {
+                    if(k in merged)
+                    {
+                      merged[k] = [].concat(merged[k], elems[i][k]);
+                    }
+                    else
+                    {
                       merged[k] = elems[i][k];
+                    }
+
                   }
               }
               var result = {};
@@ -2284,16 +2292,21 @@ module.exports = Renderer = (function() {
   };
 
   Renderer.prototype.renderSection = function(section) {
-    var isSection, key, s, val;
+    var i, isScalarArray, isSection, key, len, ref, s, subSection, val;
     s = '';
     for (key in section) {
       if (!hasProp.call(section, key)) continue;
       val = section[key];
-      isSection = (typeof val === 'object') && !Array.isArray(val);
+      isScalarArray = Array.isArray(val) && ((val.length === 0) || (typeof val[0] !== 'object'));
+      isSection = (typeof val === 'object') && !isScalarArray;
       if (isSection) {
         s += '<div class="node-param-section-title node-param-key">' + this.renderKey(key) + '</div>';
         s += '<div class="node-param-section">';
-        s += this.renderSection(val);
+        ref = [].concat(val);
+        for (i = 0, len = ref.length; i < len; i++) {
+          subSection = ref[i];
+          s += this.renderSection(subSection);
+        }
       } else {
         s += '<div class="node-param-row">';
         s += '<span class="node-param-key">' + this.renderKey(key) + ': </span>';

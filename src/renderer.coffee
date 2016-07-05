@@ -81,11 +81,13 @@ class Renderer
         s = ''
         for own key of section
             val = section[key]
-            isSection = (typeof val is 'object') and not Array.isArray(val)
+            isScalarArray = Array.isArray(val) and ((val.length==0) or (typeof val[0] isnt 'object'))
+            isSection = (typeof val is 'object') and not isScalarArray
             if isSection
                 s += '<div class="node-param-section-title node-param-key">'+@renderKey(key)+'</div>'
                 s += '<div class="node-param-section">'
-                s+= @renderSection val
+                for subSection in [].concat(val)
+                  s += @renderSection subSection
             else
                 s += '<div class="node-param-row">'
                 s += '<span class="node-param-key">'+@renderKey(key)+': </span>'

@@ -67,7 +67,15 @@ object
       {
           for(var k in elems[i])
           {
+            if(k in merged)
+            {
+              merged[k] = [].concat(merged[k], elems[i][k]);
+            }
+            else
+            {
               merged[k] = elems[i][k];
+            }
+
           }
       }
       var result = {};
