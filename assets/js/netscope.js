@@ -84,128 +84,399 @@ module.exports = AppController = (function() {
 })();
 
 
-},{"./editor.coffee":4,"./renderer.coffee":8}],2:[function(require,module,exports){
-var CaffeParser, Network, Parser, generateLayers, generateNetwork,
+},{"./editor.coffee":5,"./renderer.coffee":9}],2:[function(require,module,exports){
+var Blob, BlobTable, CaffeParser, Layers, LayersGenerator, Network, NodesGenerator, Parser, Utils, computePrecedingShapes, computeShapes, generateLayers, generateNetwork, setNodeOutputShapesAttribute,
+  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   hasProp = {}.hasOwnProperty;
 
 Parser = require('./parser');
 
-Network = require('../network.coffee');
+Layers = require('./layers.coffee');
 
-generateLayers = function(descriptors, phase) {
-  var entry, headerKeys, j, layer, layerDesc, layers, len;
-  if (phase == null) {
-    phase = 'train';
+Network = require('./../network.coffee');
+
+Utils = require('./../utils/utils.coffee');
+
+Blob = (function() {
+  function Blob(name1) {
+    this.name = name1;
+    this.addReader = bind(this.addReader, this);
+    this.addWriter = bind(this.addWriter, this);
+    this.readers = [];
+    this.writers = [];
   }
-  layers = [];
-  for (j = 0, len = descriptors.length; j < len; j++) {
-    entry = descriptors[j];
-    layerDesc = entry.layer || entry.layers;
-    if (layerDesc != null) {
-      layer = {};
-      headerKeys = ['name', 'type', 'top', 'bottom'];
-      _.extend(layer, _.pick(layerDesc, headerKeys));
-      layer.attribs = _.omit(layerDesc, headerKeys);
-      layers.push(layer);
-    } else {
-      console.log('Unidentified entry ignored: ', entry);
+
+  Blob.prototype.addWriter = function(writerNode) {
+    this.writers.push(writerNode);
+    if (writerNode.tops == null) {
+      writerNode.tops = [];
     }
+    return writerNode.tops.push(this);
+  };
+
+  Blob.prototype.addReader = function(readerNode) {
+    this.readers.push(readerNode);
+    if (readerNode.bottoms == null) {
+      readerNode.bottoms = [];
+    }
+    return readerNode.bottoms.push(this);
+  };
+
+  Blob.prototype.connectWithNodeAsTop = function(blob, writerNode) {
+    return blob.addWriter(writerNode);
+  };
+
+  Blob.prototype.connectWithNodeAsBottom = function(blob, readerNode) {
+    return blob.addReader(readerNode);
+  };
+
+  return Blob;
+
+})();
+
+BlobTable = (function() {
+  function BlobTable(layers) {
+    this.generateBlobsByNames = bind(this.generateBlobsByNames, this);
+    this.getBlobByName = bind(this.getBlobByName, this);
+    this.fillInternalTable = bind(this.fillInternalTable, this);
+    this.table = {};
+    this.fillInternalTable(layers);
   }
-  layers = _.filter(layers, function(layer) {
-    var layerPhase, ref;
-    layerPhase = (ref = layer.attribs.include) != null ? ref.phase : void 0;
-    return !((layerPhase != null) && layerPhase !== phase);
-  });
-  return layers;
-};
+
+  BlobTable.prototype.fillInternalTable = function(layers) {
+    var i, layer, len, results;
+    results = [];
+    for (i = 0, len = layers.length; i < len; i++) {
+      layer = layers[i];
+      this.generateBlobsByNames(layer.top);
+      results.push(this.generateBlobsByNames(layer.bottom));
+    }
+    return results;
+  };
+
+  BlobTable.prototype.getBlobByName = function(blobName) {
+    return this.table[blobName];
+  };
+
+  BlobTable.prototype.generateBlobsByNames = function(blobNames) {
+    var blobName, blobNode, i, len, ref, results;
+    if (blobNames == null) {
+      return;
+    }
+    ref = Utils.asArray(blobNames);
+    results = [];
+    for (i = 0, len = ref.length; i < len; i++) {
+      blobName = ref[i];
+      if (!(blobName in this.table)) {
+        blobNode = new Blob(blobName);
+        results.push(this.table[blobName] = blobNode);
+      } else {
+        results.push(void 0);
+      }
+    }
+    return results;
+  };
+
+  return BlobTable;
+
+})();
+
+NodesGenerator = (function() {
+  function NodesGenerator(blobTable1) {
+    this.blobTable = blobTable1;
+    this.getFirstWriterNode = bind(this.getFirstWriterNode, this);
+    this.connectSingleNodeWithBlobs = bind(this.connectSingleNodeWithBlobs, this);
+    this.connectNodesWithBlobs = bind(this.connectNodesWithBlobs, this);
+    this.connectNonInplaceNodes = bind(this.connectNonInplaceNodes, this);
+    this.connectInplaceNodes = bind(this.connectInplaceNodes, this);
+    this.connectNodesWithEachOther = bind(this.connectNodesWithEachOther, this);
+    this.fillNetwork = bind(this.fillNetwork, this);
+  }
+
+  NodesGenerator.prototype.fillNetwork = function(network, layers) {
+    this.connectNodesWithBlobs(network, layers);
+    this.connectNodesWithEachOther();
+    return network;
+  };
+
+  NodesGenerator.prototype.connectNodesWithEachOther = function() {
+    var blob, inplaceNodes, k, lastInplaceNode, nonInplaceReaders, nonInplaceWriters, ref, results, writerNode;
+    ref = this.blobTable.table;
+    results = [];
+    for (k in ref) {
+      if (!hasProp.call(ref, k)) continue;
+      blob = ref[k];
+      inplaceNodes = _.intersection(blob.writers, blob.readers);
+      nonInplaceWriters = _.difference(blob.writers, inplaceNodes);
+      nonInplaceReaders = _.difference(blob.readers, inplaceNodes);
+      writerNode = this.getFirstWriterNode(blob, nonInplaceWriters);
+      if (writerNode != null) {
+        lastInplaceNode = this.connectInplaceNodes(writerNode, inplaceNodes);
+        results.push(this.connectNonInplaceNodes(lastInplaceNode, nonInplaceReaders));
+      } else {
+        results.push(void 0);
+      }
+    }
+    return results;
+  };
+
+  NodesGenerator.prototype.connectInplaceNodes = function(parentNode, inplaceNodes) {
+    var i, inplaceNode, lastParrentNode, len;
+    if (parentNode.coalesce == null) {
+      parentNode.coalesce = [];
+    }
+    lastParrentNode = parentNode;
+    for (i = 0, len = inplaceNodes.length; i < len; i++) {
+      inplaceNode = inplaceNodes[i];
+      inplaceNode.annotation = 'InPlace';
+      lastParrentNode.addChild(inplaceNode);
+      parentNode.coalesce.push(inplaceNode);
+      lastParrentNode = inplaceNode;
+    }
+    return lastParrentNode;
+  };
+
+  NodesGenerator.prototype.connectNonInplaceNodes = function(parentNode, nonInplaceNodes) {
+    var i, len, node, results;
+    results = [];
+    for (i = 0, len = nonInplaceNodes.length; i < len; i++) {
+      node = nonInplaceNodes[i];
+      results.push(parentNode.addChild(node));
+    }
+    return results;
+  };
+
+  NodesGenerator.prototype.connectNodesWithBlobs = function(network, layers) {
+    var i, layer, len, node;
+    for (i = 0, len = layers.length; i < len; i++) {
+      layer = layers[i];
+      node = this.createNode(network, layer);
+      this.connectSingleNodeWithBlobs(node, Blob.prototype.connectWithNodeAsTop, layer.top);
+      this.connectSingleNodeWithBlobs(node, Blob.prototype.connectWithNodeAsBottom, layer.bottom);
+    }
+    return network;
+  };
+
+  NodesGenerator.prototype.connectSingleNodeWithBlobs = function(node, connectorFunction, blobNames) {
+    var blob, blobName, i, len, ref, results;
+    if (blobNames == null) {
+      return;
+    }
+    ref = Utils.asArray(blobNames);
+    results = [];
+    for (i = 0, len = ref.length; i < len; i++) {
+      blobName = ref[i];
+      blob = this.blobTable.getBlobByName(blobName);
+      results.push(connectorFunction(blob, node));
+    }
+    return results;
+  };
+
+  NodesGenerator.prototype.createNode = function(net, layer) {
+    var node;
+    node = net.createNode(layer.name, layer.type, layer.attribs);
+    node.bottoms = [];
+    node.tops = [];
+    return node;
+  };
+
+  NodesGenerator.prototype.getFirstWriterNode = function(blob, nonInplaceWriters) {
+    var n;
+    if (nonInplaceWriters.length > 1) {
+      throw ("Writers number for the '" + blob.name + "' Blob is greater than one.") + ("Non inplace layers with names " + ((function() {
+        var i, len, results;
+        results = [];
+        for (i = 0, len = nonInplaceWriters.length; i < len; i++) {
+          n = nonInplaceWriters[i];
+          results.push(n.name);
+        }
+        return results;
+      })()) + " ") + "write to the same memory, Caffe topology is incorrect.";
+    }
+    return nonInplaceWriters[0];
+  };
+
+  return NodesGenerator;
+
+})();
+
+LayersGenerator = (function() {
+  function LayersGenerator(descriptors1, header1) {
+    this.descriptors = descriptors1;
+    this.header = header1;
+    this.tryConvertHeaderInputToDataLayer = bind(this.tryConvertHeaderInputToDataLayer, this);
+    this.tryConvertInputShapeEntryToDataLayer = bind(this.tryConvertInputShapeEntryToDataLayer, this);
+    this.tryExtractDescriptorsFromHeader = bind(this.tryExtractDescriptorsFromHeader, this);
+    this.generateRegularLayers = bind(this.generateRegularLayers, this);
+    this.generate = bind(this.generate, this);
+  }
+
+  LayersGenerator.prototype.generate = function(phase) {
+    var descriptors, layers;
+    descriptors = this.tryExtractDescriptorsFromHeader();
+    layers = this.generateRegularLayers(phase);
+    return layers;
+  };
+
+  LayersGenerator.prototype.generateRegularLayers = function(phase) {
+    var entry, headerKeys, i, layer, layerDesc, layers, len, ref;
+    if (phase == null) {
+      phase = 'train';
+    }
+    layers = [];
+    headerKeys = ['name', 'type', 'top', 'bottom'];
+    ref = this.descriptors;
+    for (i = 0, len = ref.length; i < len; i++) {
+      entry = ref[i];
+      layerDesc = entry.layer || entry.layers;
+      if (layerDesc != null) {
+        layer = {};
+        _.extend(layer, _.pick(layerDesc, headerKeys));
+        layer.attribs = _.omit(layerDesc, headerKeys);
+        layers.push(layer);
+      } else {
+        console.log('Unidentified entry ignored: ', entry);
+      }
+    }
+    layers = _.filter(layers, function(layer) {
+      var layerPhase, ref1;
+      layerPhase = (ref1 = layer.attribs.include) != null ? ref1.phase : void 0;
+      return !((layerPhase != null) && layerPhase !== phase);
+    });
+    return layers;
+  };
+
+  LayersGenerator.prototype.tryExtractDescriptorsFromHeader = function() {
+    var dataLayer;
+    dataLayer = this.tryConvertHeaderInputToDataLayer();
+    if (dataLayer == null) {
+      dataLayer = this.tryConvertInputShapeEntryToDataLayer();
+    }
+    if (dataLayer != null) {
+      this.descriptors.push(dataLayer);
+    }
+    return this.descriptors;
+  };
+
+  LayersGenerator.prototype.tryConvertInputShapeEntryToDataLayer = function() {
+    var entry, i, inputName, inputShape, len, ref;
+    ref = this.descriptors;
+    for (i = 0, len = ref.length; i < len; i++) {
+      entry = ref[i];
+      inputShape = entry.input_shape;
+      if (inputShape != null) {
+        break;
+      }
+    }
+    if (inputShape != null) {
+      inputName = this.header.input || 'data';
+      return this.createDataLayerDescriptor(inputName, inputShape.dim);
+    }
+  };
+
+  LayersGenerator.prototype.tryConvertHeaderInputToDataLayer = function() {
+    var inputDim, layerName, ref, ref1;
+    layerName = (ref = this.header) != null ? ref.input : void 0;
+    inputDim = (ref1 = this.header) != null ? ref1.input_dim : void 0;
+    if ((layerName != null) && (inputDim != null)) {
+      return this.createDataLayerDescriptor(layerName, inputDim);
+    }
+  };
+
+  LayersGenerator.prototype.createDataLayerDescriptor = function(name, shape) {
+    var layer;
+    layer = {
+      name: name,
+      type: 'Data',
+      top: name,
+      input_param: {
+        shape: shape
+      }
+    };
+    return {
+      layer: layer
+    };
+  };
+
+  return LayersGenerator;
+
+})();
 
 generateNetwork = function(layers, header) {
-  var children, curNode, dataNode, dims, getNodes, getSingleNode, i, implicitLayers, inplaceChild, inplaceOps, inplaceTable, input, inputs, j, k, l, layer, len, len1, len2, len3, m, n, net, node, nodeTable;
-  nodeTable = {};
-  implicitLayers = [];
-  net = new Network(header.name);
-  getSingleNode = (function(_this) {
-    return function(name) {
-      var node;
-      node = nodeTable[name];
-      if (node == null) {
-        node = net.createNode(name, 'implicit');
-        nodeTable[name] = node;
-      }
-      return node;
-    };
-  })(this);
-  getNodes = (function(_this) {
-    return function(names, exclude) {
-      names = [].concat(names);
-      if (exclude != null) {
-        _.pullAll(names, exclude);
-      }
-      return _.map(names, getSingleNode);
-    };
-  })(this);
-  for (j = 0, len = layers.length; j < len; j++) {
-    layer = layers[j];
-    nodeTable[layer.name] = net.createNode(layer.name, layer.type, layer.attribs);
+  var blobTable, e, generator, network;
+  try {
+    network = new Network(header.name);
+    blobTable = new BlobTable(layers);
+    generator = new NodesGenerator(blobTable);
+    return generator.fillNetwork(network, layers);
+  } catch (error) {
+    e = error;
+    return console.log("Can't build network graph. " + e);
   }
-  inplaceTable = {};
-  for (l = 0, len1 = layers.length; l < len1; l++) {
-    layer = layers[l];
-    node = nodeTable[layer.name];
-    if (layer.top != null) {
-      if (layer.top === layer.bottom) {
-        if (inplaceTable[layer.top] == null) {
-          inplaceTable[layer.top] = [];
-        }
-        inplaceTable[layer.top].push(node);
-        continue;
-      } else {
-        node.addChildren(getNodes(layer.top, [layer.name]));
-      }
-    }
-    if (layer.bottom != null) {
-      node.addParents(getNodes(layer.bottom, [].concat(layer.top)));
+};
+
+generateLayers = function(descriptors, header) {
+  var layersGenerator;
+  layersGenerator = new LayersGenerator(descriptors, header);
+  return layersGenerator.generate();
+};
+
+setNodeOutputShapesAttribute = function(node) {
+  var blob, i, len, ref, ref1, results, shapeText;
+  if (!((node != null ? (ref = node.tops) != null ? ref.length : void 0 : void 0) > 0)) {
+    return;
+  }
+  node.attribs.blob_shapes = {};
+  ref1 = node.tops;
+  results = [];
+  for (i = 0, len = ref1.length; i < len; i++) {
+    blob = ref1[i];
+    shapeText = '[ ' + blob.shape.join(', ') + ' ]';
+    results.push(node.attribs.blob_shapes[blob.name] = shapeText);
+  }
+  return results;
+};
+
+computePrecedingShapes = function(node) {
+  var i, len, parent, ref;
+  ref = node.parents;
+  for (i = 0, len = ref.length; i < len; i++) {
+    parent = ref[i];
+    if (!parent.areTopShapesInfered) {
+      computePrecedingShapes(parent);
+      parent.areTopShapesInfered = true;
     }
   }
-  for (k in inplaceTable) {
-    if (!hasProp.call(inplaceTable, k)) continue;
-    inplaceOps = inplaceTable[k];
-    curNode = nodeTable[k];
-    curNode.coalesce = inplaceOps;
-    children = curNode.detachChildren();
-    for (m = 0, len2 = inplaceOps.length; m < len2; m++) {
-      inplaceChild = inplaceOps[m];
-      inplaceChild.annotation = 'InPlace';
-      curNode.addChild(inplaceChild);
-      curNode = inplaceChild;
+  Layers.inferTopShapes(node);
+  return setNodeOutputShapesAttribute(node);
+};
+
+computeShapes = function(net) {
+  var e, endNodes, i, len, node, results;
+  endNodes = net.findEndNodes();
+  try {
+    results = [];
+    for (i = 0, len = endNodes.length; i < len; i++) {
+      node = endNodes[i];
+      results.push(computePrecedingShapes(node));
     }
-    curNode.addChildren(children);
+    return results;
+  } catch (error) {
+    e = error;
+    return console.log("Can't infer network data shapes. " + e);
   }
-  if (((header != null ? header.input : void 0) != null) && ((header != null ? header.input_dim : void 0) != null)) {
-    inputs = [].concat(header.input);
-    dims = header.input_dim;
-    if (inputs.length === (dims.length / 4)) {
-      for (i = n = 0, len3 = inputs.length; n < len3; i = ++n) {
-        input = inputs[i];
-        dataNode = nodeTable[input];
-        dataNode.type = 'data';
-        dataNode.attribs.shape = dims.slice(i * 4, (i + 1) * 4);
-      }
-    } else {
-      console.log('Inconsistent input dimensions.');
-    }
-  }
-  return net;
 };
 
 module.exports = CaffeParser = (function() {
   function CaffeParser() {}
 
   CaffeParser.parse = function(txt, phase) {
-    var header, layerDesc, layers, ref;
-    ref = Parser.parse(txt), header = ref[0], layerDesc = ref[1];
-    layers = generateLayers(layerDesc, phase);
-    return generateNetwork(layers, header);
+    var descriptors, header, layers, network, ref;
+    ref = Parser.parse(txt), header = ref[0], descriptors = ref[1];
+    layers = generateLayers(descriptors, header);
+    network = generateNetwork(layers, header);
+    computeShapes(network);
+    return network;
   };
 
   return CaffeParser;
@@ -213,7 +484,557 @@ module.exports = CaffeParser = (function() {
 })();
 
 
-},{"../network.coffee":7,"./parser":3}],3:[function(require,module,exports){
+},{"./../network.coffee":8,"./../utils/utils.coffee":10,"./layers.coffee":3,"./parser":4}],3:[function(require,module,exports){
+var areShapesEqual, extractKernelSizes, extractPaddingSizes, extractStrideSizes, getLayerType, getParameterAsArray, getValueOrDefault, isDataLayer, isLossLayer, layers, shapesToString, utils,
+  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
+
+utils = require('../utils/utils.coffee');
+
+areShapesEqual = function(x, y) {
+  var i, j, ref;
+  if (x.length !== y.length) {
+    return false;
+  }
+  for (i = j = 0, ref = x.length; 0 <= ref ? j < ref : j > ref; i = 0 <= ref ? ++j : --j) {
+    if (x[i] !== y[i]) {
+      return false;
+    }
+  }
+  return true;
+};
+
+getValueOrDefault = function(param, defaultValue) {
+  if (param != null) {
+    return param;
+  } else {
+    return defaultValue;
+  }
+};
+
+extractKernelSizes = function(params) {
+  return params.kernel_size || [params.kernel_h, params.kernel_w];
+};
+
+extractPaddingSizes = function(params) {
+  if (params.pad != null) {
+    return params.pad;
+  }
+  if ((params.pad_h == null) && (params.pad_w == null)) {
+    return 0;
+  }
+  return [getValueOrDefault(params.pad_h, 0), getValueOrDefault(params.pad_w, 0)];
+};
+
+extractStrideSizes = function(params) {
+  if (params.stride != null) {
+    return params.stride;
+  }
+  if ((params.stride_h == null) && (params.stride_w == null)) {
+    return 1;
+  }
+  return [getValueOrDefault(params.stride_h, 1), getValueOrDefault(params.stride_w, 1)];
+};
+
+getParameterAsArray = function(parameter, requiredLength, name) {
+  var i;
+  if (utils.typeIsArray(parameter)) {
+    if (parameter.length !== requiredLength) {
+      throw ("Dimensions of the '" + name + "' parameter ") + ("must be equal to " + requiredLength + ".");
+    }
+    return parameter;
+  }
+  return (function() {
+    var j, ref, results;
+    results = [];
+    for (i = j = 0, ref = requiredLength; 0 <= ref ? j < ref : j > ref; i = 0 <= ref ? ++j : --j) {
+      results.push(parameter);
+    }
+    return results;
+  })();
+};
+
+shapesToString = function(inputShapes) {
+  var j, len, shape, text;
+  text = '[';
+  for (j = 0, len = inputShapes.length; j < len; j++) {
+    shape = inputShapes[j];
+    text += " [ " + shape + " ]";
+  }
+  text += ' ]';
+  return text;
+};
+
+layers = {};
+
+layers.uniform = this.UniformLayer = (function() {
+  function UniformLayer() {}
+
+  UniformLayer.prototype.inferShapes = function(bottoms, tops) {
+    var i, j, ref, results;
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    results = [];
+    for (i = j = 0, ref = tops.length; 0 <= ref ? j < ref : j > ref; i = 0 <= ref ? ++j : --j) {
+      results.push(tops[i].shape = bottoms[i].shape.slice(0));
+    }
+    return results;
+  };
+
+  return UniformLayer;
+
+})();
+
+layers.Loss = this.LossLayer = (function() {
+  function LossLayer() {}
+
+  LossLayer.prototype.inferShapes = function(bottoms, tops) {
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    return tops[0].shape = [1];
+  };
+
+  return LossLayer;
+
+})();
+
+layers.Data = this.DataLayer = (function() {
+  function DataLayer(attribs) {
+    this.tryExtractShapeFromMemoryDataLayer = bind(this.tryExtractShapeFromMemoryDataLayer, this);
+    this.tryExtractShapeFromTransformParam = bind(this.tryExtractShapeFromTransformParam, this);
+    this.tryExtractShapes = bind(this.tryExtractShapes, this);
+    this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapes = bind(this.inferShapes, this);
+    this.defaultBatchSize = 1;
+    this.defaultChannels = 3;
+    this.outputShape = this.tryExtractShapes(attribs);
+  }
+
+  DataLayer.prototype.inferShapes = function(bottoms, tops) {
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    this.checkParameters(bottoms, tops);
+    tops[0].shape = this.outputShape.slice(0);
+    if (tops[1]) {
+      return tops[1].shape = this.outputShape.slice(0, 1);
+    }
+  };
+
+  DataLayer.prototype.checkParameters = function(bottoms, tops) {
+    var ref;
+    if (this.outputShape == null) {
+      throw "Can't extract data shape from Data layer";
+    }
+    if ((bottoms != null ? bottoms.length : void 0) > 0) {
+      throw "Data layer doesn't expect any input.";
+    }
+    if ((ref = tops != null ? tops.length : void 0) !== 1 && ref !== 2) {
+      throw 'Outputs number of Data layer must be equal to one or two.';
+    }
+  };
+
+  DataLayer.prototype.tryExtractShapes = function(attribs) {
+    var ref, ref1, ref2, shape;
+    shape = attribs != null ? (ref = attribs.input_param) != null ? (ref1 = ref.shape) != null ? ref1.dim : void 0 : void 0 : void 0;
+    if (shape == null) {
+      shape = attribs != null ? (ref2 = attribs.input_param) != null ? ref2.shape : void 0 : void 0;
+    }
+    if (shape == null) {
+      shape = attribs != null ? attribs.shape : void 0;
+    }
+    if (shape == null) {
+      shape = this.tryExtractShapeFromTransformParam(attribs);
+    }
+    if (shape == null) {
+      shape = this.tryExtractShapeFromMemoryDataLayer(attribs);
+    }
+    return shape;
+  };
+
+  DataLayer.prototype.tryExtractShapeFromTransformParam = function(attribs) {
+    var channels, cropSize, ref;
+    cropSize = (ref = attribs.transform_param) != null ? ref.crop_size : void 0;
+    if (cropSize != null) {
+      channels = this.defaultChannels;
+      if (attribs.transform_param.force_gray) {
+        channels = 1;
+      }
+      return [this.defaultBatchSize, channels, cropSize, cropSize];
+    }
+  };
+
+  DataLayer.prototype.tryExtractShapeFromMemoryDataLayer = function(attribs) {
+    var batch_size, channels, height, param, width;
+    param = attribs != null ? attribs.memory_data_param : void 0;
+    batch_size = param.batch_size || this.defaultBatchSize;
+    channels = param.channels || this.defaultChannels;
+    height = param.height;
+    width = param.width;
+    if ((height != null) && (width != null)) {
+      return [batch_size, channels, height, width];
+    }
+  };
+
+  return DataLayer;
+
+})();
+
+layers.Convolution = this.ConvolutionLayer = (function() {
+  function ConvolutionLayer(attribs) {
+    this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapesForOneBlob = bind(this.inferShapesForOneBlob, this);
+    this.inferShapes = bind(this.inferShapes, this);
+    var params;
+    params = attribs != null ? attribs.convolution_param : void 0;
+    if (params == null) {
+      throw 'Convolution layer must have convolution_param.';
+    }
+    this.filters = params.num_output;
+    this.padding = extractPaddingSizes(params);
+    this.stride = extractStrideSizes(params);
+    this.kernel = extractKernelSizes(params);
+    this.dilation = getValueOrDefault(params.dilation, 1);
+    this.axis = getValueOrDefault(params.axis, 1);
+  }
+
+  ConvolutionLayer.prototype.inferShapes = function(bottoms, tops) {
+    var i, j, ref, results;
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    this.checkParameters(bottoms, tops);
+    results = [];
+    for (i = j = 0, ref = tops.length; 0 <= ref ? j < ref : j > ref; i = 0 <= ref ? ++j : --j) {
+      results.push(this.inferShapesForOneBlob(bottoms[i], tops[i]));
+    }
+    return results;
+  };
+
+  ConvolutionLayer.prototype.inferShapesForOneBlob = function(bottom, top) {
+    var dilation, i, ii, inputShape, j, kernel, kernelExtent, outDim, outputShape, padding, ref, ref1, stride, sucDimLength, succeedingDimensions;
+    inputShape = bottom.shape;
+    outputShape = inputShape.slice(0);
+    outputShape[this.axis] = this.filters;
+    succeedingDimensions = inputShape.slice(this.axis + 1);
+    sucDimLength = succeedingDimensions.length;
+    padding = getParameterAsArray(this.padding, sucDimLength, 'padding');
+    kernel = getParameterAsArray(this.kernel, sucDimLength, 'kernel');
+    stride = getParameterAsArray(this.stride, sucDimLength, 'stride');
+    dilation = getParameterAsArray(this.dilation, sucDimLength, 'dilation');
+    for (i = j = ref = this.axis + 1, ref1 = inputShape.length; ref <= ref1 ? j < ref1 : j > ref1; i = ref <= ref1 ? ++j : --j) {
+      ii = i - this.axis - 1;
+      kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
+      outDim = (inputShape[i] + 2 * padding[ii] - kernelExtent) / stride[ii] + 1;
+      outputShape[i] = Math.floor(outDim);
+    }
+    return top.shape = outputShape;
+  };
+
+  ConvolutionLayer.prototype.checkParameters = function(bottoms, tops) {
+    if (this.filters == null) {
+      throw 'Convolution layer must have num_output parameter.';
+    }
+    if ((this.kernel == null) && ((this.kernel[0] == null) || (this.kernel[1] == null))) {
+      console.log(this.kernel);
+      throw 'Convolution kernel sizes must be set.';
+    }
+    if (bottoms == null) {
+      throw 'Convolution layer received undefined bottom blobs.';
+    }
+    if (bottoms.length !== tops.length) {
+      throw "Convolution layer can process number of top blobs which is equal to " + ("the number of bottom blobs, but received " + tops.length + " top blobs and ") + (bottoms.length + " bottom blobs.");
+    }
+  };
+
+  return ConvolutionLayer;
+
+})();
+
+layers.Pooling = this.PoolingLayer = (function() {
+  function PoolingLayer(attribs) {
+    this.getKernelSizes = bind(this.getKernelSizes, this);
+    this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapes = bind(this.inferShapes, this);
+    var params;
+    this.spatialDimSize = 2;
+    params = attribs != null ? attribs.pooling_param : void 0;
+    if (params == null) {
+      throw 'Pooling layer must have pooling_param.';
+    }
+    this.padding = extractPaddingSizes(params);
+    this.stride = extractStrideSizes(params);
+    this.kernel = extractKernelSizes(params);
+    this.isGlobalPooling = getValueOrDefault(params.global_pooling, false);
+  }
+
+  PoolingLayer.prototype.inferShapes = function(bottoms, tops) {
+    var i, ii, inputShape, j, kernel, outDim, outDimRounded, outputShape, padding, ref, stride;
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    this.checkParameters(bottoms, tops);
+    inputShape = bottoms[0].shape;
+    outputShape = inputShape.slice(0);
+    padding = getParameterAsArray(this.padding, this.spatialDimSize, 'padding');
+    stride = getParameterAsArray(this.stride, this.spatialDimSize, 'stride');
+    kernel = this.getKernelSizes(inputShape);
+    for (i = j = 0, ref = this.spatialDimSize; 0 <= ref ? j < ref : j > ref; i = 0 <= ref ? ++j : --j) {
+      ii = inputShape.length - this.spatialDimSize + i;
+      outDim = (inputShape[ii] + 2 * padding[i] - kernel[i]) / stride[i];
+      outDimRounded = (Math.floor(Math.ceil(outDim))) + 1;
+      if ((outDimRounded - 1) * stride[i] >= inputShape[ii] + padding[i]) {
+        outDimRounded--;
+      }
+      outputShape[ii] = outDimRounded;
+    }
+    tops[0].shape = outputShape;
+    if (tops[1]) {
+      return tops[1].shape = outputShape.slice(0);
+    }
+  };
+
+  PoolingLayer.prototype.checkParameters = function(bottoms, tops) {
+    var ref;
+    if ((this.kernel == null) && ((this.kernel[0] == null) || (this.kernel[1] == null))) {
+      throw 'Pooling layer must have kernel_size parameter.';
+    }
+    if (bottoms == null) {
+      throw 'Pooling layer received undefined bottom blobs.';
+    }
+    if (bottoms.length !== 1) {
+      throw "Pooling layer can process exactly one input, " + ("but received " + bottoms.length + " input shapes.");
+    }
+    if ((ref = tops.length) !== 1 && ref !== 2) {
+      throw "Pooling layer produces single output shape or two equal " + "shapes if the second top shape is specified.";
+    }
+  };
+
+  PoolingLayer.prototype.getKernelSizes = function(inputShape) {
+    var kernel;
+    if (this.isGlobalPooling) {
+      kernel = inputShape.slice(-this.spatialDimSize);
+    } else {
+      kernel = getParameterAsArray(this.kernel, this.spatialDimSize, 'kernel');
+    }
+    return kernel;
+  };
+
+  return PoolingLayer;
+
+})();
+
+layers.InnerProduct = this.InnerProductLayer = (function() {
+  function InnerProductLayer(attribs) {
+    this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapes = bind(this.inferShapes, this);
+    var params;
+    params = attribs != null ? attribs.inner_product_param : void 0;
+    if (params == null) {
+      throw 'InnerProduct layer must have inner_product_param.';
+    }
+    this.numOutput = params.num_output;
+    this.axis = getValueOrDefault(params.axis, 1);
+  }
+
+  InnerProductLayer.prototype.inferShapes = function(bottoms, tops) {
+    var inputShape, outputShape;
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    this.checkParameters(bottoms, tops);
+    inputShape = bottoms[0].shape;
+    outputShape = inputShape.slice(0, this.axis);
+    outputShape[this.axis] = this.numOutput;
+    return tops[0].shape = outputShape;
+  };
+
+  InnerProductLayer.prototype.checkParameters = function(bottoms, tops) {
+    if (this.numOutput == null) {
+      throw 'InnerProduct layer must have num_output parameter.';
+    }
+    if (bottoms == null) {
+      throw 'InnerProduct layer received undefined bottom blobs.';
+    }
+    if (bottoms.length !== 1 || tops.length !== 1) {
+      throw "InnerProduct layer can accept and produce exactly one blob, but " + ("received " + bottoms.length + " bottoms blobs and " + tops.length + " top blobs.");
+    }
+  };
+
+  return InnerProductLayer;
+
+})();
+
+layers.Concat = this.ConcatLayer = (function() {
+  function ConcatLayer(attribs) {
+    this.checkInputShapeAxes = bind(this.checkInputShapeAxes, this);
+    this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapes = bind(this.inferShapes, this);
+    var axis, params;
+    params = attribs != null ? attribs.concat_param : void 0;
+    axis = params != null ? params.concat_dim : void 0;
+    if (axis == null) {
+      axis = params != null ? params.axis : void 0;
+    }
+    this.axis = getValueOrDefault(axis, 1);
+  }
+
+  ConcatLayer.prototype.inferShapes = function(bottoms, tops) {
+    var bottom, firstInputShape, j, len, outputShape;
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    this.checkParameters(bottoms, tops);
+    firstInputShape = bottoms[0].shape;
+    outputShape = firstInputShape.slice(0);
+    outputShape[this.axis] = 0;
+    for (j = 0, len = bottoms.length; j < len; j++) {
+      bottom = bottoms[j];
+      outputShape[this.axis] += bottom.shape[this.axis];
+    }
+    return tops[0].shape = outputShape;
+  };
+
+  ConcatLayer.prototype.checkParameters = function(bottoms, tops) {
+    var bottom, firstShape, inputShapes, j, len, results, shape;
+    if ((bottoms != null ? bottoms[0] : void 0) == null) {
+      throw 'Concat layer must have at least one bottom blob.';
+    }
+    firstShape = bottoms[0].shape;
+    inputShapes = (function() {
+      var j, len, results;
+      results = [];
+      for (j = 0, len = bottoms.length; j < len; j++) {
+        bottom = bottoms[j];
+        results.push(bottom.shape);
+      }
+      return results;
+    })();
+    results = [];
+    for (j = 0, len = inputShapes.length; j < len; j++) {
+      shape = inputShapes[j];
+      if (!this.checkInputShapeAxes(firstShape, shape)) {
+        throw "Concat layer received incorrect input shapes: " + ((shapesToString(inputShapes)) + ". ") + "All axes except axis along which concatenation " + "is performing must have the same sizes.";
+      } else {
+        results.push(void 0);
+      }
+    }
+    return results;
+  };
+
+  ConcatLayer.prototype.checkInputShapeAxes = function(firstShape, shape) {
+    var i, j, ref;
+    if (firstShape.length !== shape.length) {
+      return false;
+    }
+    for (i = j = 0, ref = shape.length; 0 <= ref ? j < ref : j > ref; i = 0 <= ref ? ++j : --j) {
+      if (i !== this.axis && firstShape[i] !== shape[i]) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  return ConcatLayer;
+
+})();
+
+layers.Eltwise = this.EltwiseLayer = (function() {
+  function EltwiseLayer() {
+    this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapes = bind(this.inferShapes, this);
+  }
+
+  EltwiseLayer.prototype.inferShapes = function(bottoms, tops) {
+    var firstInputShape;
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    this.checkParameters(bottoms, tops);
+    firstInputShape = bottoms[0].shape;
+    return tops[0].shape = firstInputShape.slice(0);
+  };
+
+  EltwiseLayer.prototype.checkParameters = function(bottoms, tops) {
+    var bottom, firstShape, inputShapes, j, len, results, shape;
+    if ((bottoms != null ? bottoms[0] : void 0) == null) {
+      throw 'Eltwise layer must have at least one input.';
+    }
+    inputShapes = (function() {
+      var j, len, results;
+      results = [];
+      for (j = 0, len = bottoms.length; j < len; j++) {
+        bottom = bottoms[j];
+        results.push(bottom.shape);
+      }
+      return results;
+    })();
+    firstShape = inputShapes[0];
+    results = [];
+    for (j = 0, len = inputShapes.length; j < len; j++) {
+      shape = inputShapes[j];
+      if (!areShapesEqual(firstShape, shape)) {
+        throw "Eltwise layer received incorrect input shapes: " + ((shapesToString(inputShapes)) + ". ") + "All exes must have the same sizes.";
+      } else {
+        results.push(void 0);
+      }
+    }
+    return results;
+  };
+
+  return EltwiseLayer;
+
+})();
+
+isLossLayer = function(layerType) {
+  return /loss/i.test(layerType);
+};
+
+isDataLayer = function(layerType) {
+  return (/input/i.test(layerType)) || (/data/i.test(layerType));
+};
+
+getLayerType = function(layerTypeName) {
+  var layerType, layerTypeNameTitle;
+  if (isDataLayer(layerTypeName)) {
+    return layers.Data;
+  }
+  if (isLossLayer(layerTypeName)) {
+    return layers.Loss;
+  }
+  layerType = layers[layerTypeName];
+  if (layerType == null) {
+    layerTypeNameTitle = utils.toTitleCase(layerTypeName);
+    layerType = layers[layerTypeNameTitle];
+  }
+  return layerType || layers.uniform;
+};
+
+exports.inferTopShapes = function(node) {
+  var LayerType, e, layer, top;
+  LayerType = getLayerType(node.type);
+  try {
+    layer = new LayerType(node.attribs);
+    layer.inferShapes(node.bottoms, node.tops);
+    return (function() {
+      var j, len, ref, results;
+      ref = node.tops;
+      results = [];
+      for (j = 0, len = ref.length; j < len; j++) {
+        top = ref[j];
+        results.push(top.shape);
+      }
+      return results;
+    })();
+  } catch (error) {
+    e = error;
+    throw ("Can't infer output shape of the '" + node.name + "' ") + ("layer of type '" + node.type + "'. ") + e;
+  }
+};
+
+
+},{"../utils/utils.coffee":10}],4:[function(require,module,exports){
 module.exports = (function() {
   "use strict";
 
@@ -1894,7 +2715,7 @@ module.exports = (function() {
   };
 })();
 
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 var Editor;
 
 module.exports = Editor = (function() {
@@ -1930,7 +2751,7 @@ module.exports = Editor = (function() {
 })();
 
 
-},{}],5:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 var Loader,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
 
@@ -1999,7 +2820,7 @@ module.exports = Loader = (function() {
 })();
 
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 var AppController, CaffeNetwork, Loader, showDocumentation,
   slice = [].slice;
 
@@ -2044,7 +2865,7 @@ $(document).ready(function() {
 });
 
 
-},{"./app.coffee":1,"./caffe/caffe.coffee":2,"./loader.coffee":5}],7:[function(require,module,exports){
+},{"./app.coffee":1,"./caffe/caffe.coffee":2,"./loader.coffee":6}],8:[function(require,module,exports){
 var Network, Node,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
@@ -2060,10 +2881,15 @@ Node = (function() {
     this.addParent = bind(this.addParent, this);
     this.addChildren = bind(this.addChildren, this);
     this.addChild = bind(this.addChild, this);
+    this.hasChildren = bind(this.hasChildren, this);
     this.parents = [];
     this.children = [];
     this.coalesce = [];
   }
+
+  Node.prototype.hasChildren = function() {
+    return this.children.length > 0;
+  };
 
   Node.prototype.addChild = function(child) {
     if (indexOf.call(this.children, child) < 0) {
@@ -2118,6 +2944,7 @@ module.exports = Network = (function() {
   function Network(name) {
     this.name = name != null ? name : 'Untitled Network';
     this.sortTopologically = bind(this.sortTopologically, this);
+    this.findEndNodes = bind(this.findEndNodes, this);
     this.nodes = [];
   }
 
@@ -2126,6 +2953,19 @@ module.exports = Network = (function() {
     node = new Node(label, type, attribs);
     this.nodes.push(node);
     return node;
+  };
+
+  Network.prototype.findEndNodes = function() {
+    var i, len, ref, results, x;
+    ref = this.nodes;
+    results = [];
+    for (i = 0, len = ref.length; i < len; i++) {
+      x = ref[i];
+      if (!x.hasChildren()) {
+        results.push(x);
+      }
+    }
+    return results;
   };
 
   Network.prototype.sortTopologically = function() {
@@ -2172,7 +3012,7 @@ module.exports = Network = (function() {
 })();
 
 
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 var Renderer,
   hasProp = {}.hasOwnProperty;
 
@@ -2385,4 +3225,44 @@ module.exports = Renderer = (function() {
 })();
 
 
-},{}]},{},[6]);
+},{}],10:[function(require,module,exports){
+var toTitleCaseSaveSpaces, typeIsArray;
+
+exports.typeIsArray = typeIsArray = function(value) {
+  return value && typeof value === 'object' && value instanceof Array && typeof value.length === 'number' && typeof value.splice === 'function' && !(value.propertyIsEnumerable('length'));
+};
+
+exports.asArray = function(valueOrArray) {
+  if (typeIsArray(valueOrArray)) {
+    return valueOrArray;
+  }
+  return [valueOrArray];
+};
+
+exports.asScalar = function(valueOrArray) {
+  if (!typeIsArray(valueOrArray)) {
+    return valueOrArray;
+  }
+  if (valueOrArray.length === 1) {
+    return valueOrArray[0];
+  }
+  return valueOrArray;
+};
+
+exports.toTitleCaseSaveSpaces = toTitleCaseSaveSpaces = function(str) {
+  return str[0].toUpperCase() + str.slice(1, +(str.length - 1) + 1 || 9e9).toLowerCase();
+};
+
+exports.toTitleCase = function(str) {
+  var i, len, part, partialNames, result;
+  partialNames = str.split(/[\ _]/);
+  result = '';
+  for (i = 0, len = partialNames.length; i < len; i++) {
+    part = partialNames[i];
+    result += toTitleCaseSaveSpaces(part);
+  }
+  return result;
+};
+
+
+},{}]},{},[7]);
