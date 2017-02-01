@@ -42,6 +42,9 @@ class Network
         @nodes.push node
         return node
 
+    findEndNodes: =>
+        (x for x in @nodes when not x.hasChildren())
+
     sortTopologically: =>
         sortedNodes = []
         unsortedNodes = _.clone @nodes
