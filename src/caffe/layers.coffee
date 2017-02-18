@@ -332,9 +332,21 @@ class @EltwiseLayer
 
 layers.Crop =
 class @CropLayer
+    constructor: (attribs) ->
+        params = attribs.crop_param
+        @axis = getValueOrDefault params?.axis, 0
+
     inferShapes: (bottoms, tops) =>
         unless tops?[0]? then return
-        tops[0].shape = bottoms[1].shape
+        @checkParameters bottoms, tops
+        outputShape = bottoms[0].shape[..]
+        for i in [@axis...outputShape.length]
+            outputShape[i] = bottoms[1].shape[i]
+        tops[0].shape = outputShape
+
+    checkParameters: (bottoms, tops) =>
+        if bottoms?.length != 2
+            throw 'Crop layer must have exactly two bottom blobs.'
 
 isLossLayer = (layerType) ->
     /loss/i.test layerType

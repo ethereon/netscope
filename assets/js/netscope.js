@@ -1040,15 +1040,31 @@ layers.Eltwise = this.EltwiseLayer = (function() {
 })();
 
 layers.Crop = this.CropLayer = (function() {
-  function CropLayer() {
+  function CropLayer(attribs) {
+    this.checkParameters = bind(this.checkParameters, this);
     this.inferShapes = bind(this.inferShapes, this);
+    var params;
+    params = attribs.crop_param;
+    this.axis = getValueOrDefault(params != null ? params.axis : void 0, 0);
   }
 
   CropLayer.prototype.inferShapes = function(bottoms, tops) {
+    var i, j, outputShape, ref, ref1;
     if ((tops != null ? tops[0] : void 0) == null) {
       return;
     }
-    return tops[0].shape = bottoms[1].shape;
+    this.checkParameters(bottoms, tops);
+    outputShape = bottoms[0].shape.slice(0);
+    for (i = j = ref = this.axis, ref1 = outputShape.length; ref <= ref1 ? j < ref1 : j > ref1; i = ref <= ref1 ? ++j : --j) {
+      outputShape[i] = bottoms[1].shape[i];
+    }
+    return tops[0].shape = outputShape;
+  };
+
+  CropLayer.prototype.checkParameters = function(bottoms, tops) {
+    if ((bottoms != null ? bottoms.length : void 0) !== 2) {
+      throw 'Crop layer must have exactly two bottom blobs.';
+    }
   };
 
   return CropLayer;
