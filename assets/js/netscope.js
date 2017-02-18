@@ -485,8 +485,10 @@ module.exports = CaffeParser = (function() {
 
 
 },{"./../network.coffee":8,"./../utils/utils.coffee":10,"./layers.coffee":3,"./parser":4}],3:[function(require,module,exports){
-var areShapesEqual, extractKernelSizes, extractPaddingSizes, extractStrideSizes, getLayerType, getParameterAsArray, getValueOrDefault, isDataLayer, isLossLayer, layers, shapesToString, utils,
-  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
+var ConvolutionLayerBase, areShapesEqual, extractKernelSizes, extractPaddingSizes, extractStrideSizes, getLayerType, getParameterAsArray, getValueOrDefault, isDataLayer, isLossLayer, layers, shapesToString, utils,
+  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+  extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+  hasProp = {}.hasOwnProperty;
 
 utils = require('../utils/utils.coffee');
 
@@ -681,15 +683,17 @@ layers.Data = this.DataLayer = (function() {
 
 })();
 
-layers.Convolution = this.ConvolutionLayer = (function() {
-  function ConvolutionLayer(attribs) {
+ConvolutionLayerBase = (function() {
+  function ConvolutionLayerBase(name1, attribs) {
+    var params;
+    this.name = name1;
     this.checkParameters = bind(this.checkParameters, this);
+    this.inferShapesForOneBlobInternal = bind(this.inferShapesForOneBlobInternal, this);
     this.inferShapesForOneBlob = bind(this.inferShapesForOneBlob, this);
     this.inferShapes = bind(this.inferShapes, this);
-    var params;
     params = attribs != null ? attribs.convolution_param : void 0;
     if (params == null) {
-      throw 'Convolution layer must have convolution_param.';
+      throw this.name + " layer must have convolution_param.";
     }
     this.filters = params.num_output;
     this.padding = extractPaddingSizes(params);
@@ -699,7 +703,7 @@ layers.Convolution = this.ConvolutionLayer = (function() {
     this.axis = getValueOrDefault(params.axis, 1);
   }
 
-  ConvolutionLayer.prototype.inferShapes = function(bottoms, tops) {
+  ConvolutionLayerBase.prototype.inferShapes = function(bottoms, tops) {
     var i, j, ref, results;
     if ((tops != null ? tops[0] : void 0) == null) {
       return;
@@ -712,45 +716,93 @@ layers.Convolution = this.ConvolutionLayer = (function() {
     return results;
   };
 
-  ConvolutionLayer.prototype.inferShapesForOneBlob = function(bottom, top) {
-    var dilation, i, ii, inputShape, j, kernel, kernelExtent, outDim, outputShape, padding, ref, ref1, stride, sucDimLength, succeedingDimensions;
+  ConvolutionLayerBase.prototype.inferShapesForOneBlob = function(bottom, top) {
+    var dilation, inputShape, kernel, outputShape, padding, stride, sucDimLength, succeedingDimensions;
     inputShape = bottom.shape;
     outputShape = inputShape.slice(0);
-    outputShape[this.axis] = this.filters;
     succeedingDimensions = inputShape.slice(this.axis + 1);
     sucDimLength = succeedingDimensions.length;
     padding = getParameterAsArray(this.padding, sucDimLength, 'padding');
     kernel = getParameterAsArray(this.kernel, sucDimLength, 'kernel');
     stride = getParameterAsArray(this.stride, sucDimLength, 'stride');
     dilation = getParameterAsArray(this.dilation, sucDimLength, 'dilation');
-    for (i = j = ref = this.axis + 1, ref1 = inputShape.length; ref <= ref1 ? j < ref1 : j > ref1; i = ref <= ref1 ? ++j : --j) {
-      ii = i - this.axis - 1;
-      kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
-      outDim = (inputShape[i] + 2 * padding[ii] - kernelExtent) / stride[ii] + 1;
-      outputShape[i] = Math.floor(outDim);
-    }
+    this.inferShapesForOneBlobInternal(inputShape, outputShape, padding, kernel, stride, dilation);
     return top.shape = outputShape;
   };
 
-  ConvolutionLayer.prototype.checkParameters = function(bottoms, tops) {
+  ConvolutionLayerBase.prototype.inferShapesForOneBlobInternal = function(input, output, padding, kernel, stride, dilation) {
+    return void 0;
+  };
+
+  ConvolutionLayerBase.prototype.checkParameters = function(bottoms, tops) {
     if (this.filters == null) {
-      throw 'Convolution layer must have num_output parameter.';
+      throw this.name + " layer must have num_output parameter.";
     }
     if ((this.kernel == null) && ((this.kernel[0] == null) || (this.kernel[1] == null))) {
       console.log(this.kernel);
-      throw 'Convolution kernel sizes must be set.';
+      throw this.name + " kernel sizes must be set.";
     }
     if (bottoms == null) {
-      throw 'Convolution layer received undefined bottom blobs.';
+      throw this.name + " layer received undefined bottom blobs.";
     }
     if (bottoms.length !== tops.length) {
-      throw "Convolution layer can process number of top blobs which is equal to " + ("the number of bottom blobs, but received " + tops.length + " top blobs and ") + (bottoms.length + " bottom blobs.");
+      throw (this.name + " layer can process number of top blobs which is equal to ") + ("the number of bottom blobs, but received " + tops.length + " top blobs and ") + (bottoms.length + " bottom blobs.");
     }
+  };
+
+  return ConvolutionLayerBase;
+
+})();
+
+layers.Convolution = this.ConvolutionLayer = (function(superClass) {
+  extend(ConvolutionLayer, superClass);
+
+  function ConvolutionLayer(attribs) {
+    this.inferShapesForOneBlobInternal = bind(this.inferShapesForOneBlobInternal, this);
+    ConvolutionLayer.__super__.constructor.call(this, 'Convolution', attribs);
+  }
+
+  ConvolutionLayer.prototype.inferShapesForOneBlobInternal = function(input, output, padding, kernel, stride, dilation) {
+    var i, ii, j, kernelExtent, outDim, ref, ref1, results;
+    output[this.axis] = this.filters;
+    results = [];
+    for (i = j = ref = this.axis + 1, ref1 = input.length; ref <= ref1 ? j < ref1 : j > ref1; i = ref <= ref1 ? ++j : --j) {
+      ii = i - this.axis - 1;
+      kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
+      outDim = (input[i] + 2 * padding[ii] - kernelExtent) / stride[ii] + 1;
+      results.push(output[i] = Math.floor(outDim));
+    }
+    return results;
   };
 
   return ConvolutionLayer;
 
-})();
+})(ConvolutionLayerBase);
+
+layers.Deconvolution = this.DeconvolutionLayer = (function(superClass) {
+  extend(DeconvolutionLayer, superClass);
+
+  function DeconvolutionLayer(attribs) {
+    this.inferShapesForOneBlobInternal = bind(this.inferShapesForOneBlobInternal, this);
+    DeconvolutionLayer.__super__.constructor.call(this, 'Deconvolution', attribs);
+  }
+
+  DeconvolutionLayer.prototype.inferShapesForOneBlobInternal = function(input, output, padding, kernel, stride, dilation) {
+    var i, ii, j, kernelExtent, outDim, ref, ref1, results;
+    output[this.axis] = this.filters;
+    results = [];
+    for (i = j = ref = this.axis + 1, ref1 = input.length; ref <= ref1 ? j < ref1 : j > ref1; i = ref <= ref1 ? ++j : --j) {
+      ii = i - this.axis - 1;
+      kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
+      outDim = stride[ii] * (input[i] - 1) + kernelExtent - 2 * padding[ii];
+      results.push(output[i] = Math.floor(outDim));
+    }
+    return results;
+  };
+
+  return DeconvolutionLayer;
+
+})(ConvolutionLayerBase);
 
 layers.Pooling = this.PoolingLayer = (function() {
   function PoolingLayer(attribs) {
@@ -975,7 +1027,7 @@ layers.Eltwise = this.EltwiseLayer = (function() {
     for (j = 0, len = inputShapes.length; j < len; j++) {
       shape = inputShapes[j];
       if (!areShapesEqual(firstShape, shape)) {
-        throw "Eltwise layer received incorrect input shapes: " + ((shapesToString(inputShapes)) + ". ") + "All exes must have the same sizes.";
+        throw "Eltwise layer received incorrect input shapes: " + ((shapesToString(inputShapes)) + ". ") + "All axes must have the same sizes.";
       } else {
         results.push(void 0);
       }
@@ -984,6 +1036,22 @@ layers.Eltwise = this.EltwiseLayer = (function() {
   };
 
   return EltwiseLayer;
+
+})();
+
+layers.Crop = this.CropLayer = (function() {
+  function CropLayer() {
+    this.inferShapes = bind(this.inferShapes, this);
+  }
+
+  CropLayer.prototype.inferShapes = function(bottoms, tops) {
+    if ((tops != null ? tops[0] : void 0) == null) {
+      return;
+    }
+    return tops[0].shape = bottoms[1].shape;
+  };
+
+  return CropLayer;
 
 })();
 

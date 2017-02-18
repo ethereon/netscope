@@ -116,13 +116,11 @@ class @DataLayer
         if height? and width?
             return [batch_size, channels, height, width]
 
-
-layers.Convolution =
-class @ConvolutionLayer
-    constructor: (attribs) ->
+class ConvolutionLayerBase
+    constructor: (@name, attribs) ->
         params = attribs?.convolution_param
         unless params?
-            throw 'Convolution layer must have convolution_param.'
+            throw "#{@name} layer must have convolution_param."
         @filters  = params.num_output
         @padding  = extractPaddingSizes params
         @stride   = extractStrideSizes  params
@@ -141,32 +139,58 @@ class @ConvolutionLayer
     inferShapesForOneBlob: (bottom, top) =>
         inputShape = bottom.shape
         outputShape = inputShape[..]
-        outputShape[@axis] = @filters
         succeedingDimensions = inputShape[@axis + 1..]
         sucDimLength = succeedingDimensions.length
         padding  = getParameterAsArray @padding,  sucDimLength, 'padding'
         kernel   = getParameterAsArray @kernel,   sucDimLength, 'kernel'
         stride   = getParameterAsArray @stride,   sucDimLength, 'stride'
         dilation = getParameterAsArray @dilation, sucDimLength, 'dilation'
-        for i in [@axis + 1...inputShape.length]
-            ii = i - @axis - 1
-            kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
-            outDim = (inputShape[i] + 2 * padding[ii] - kernelExtent) / stride[ii] + 1
-            outputShape[i] = Math.floor outDim
+        @inferShapesForOneBlobInternal inputShape, outputShape, padding,
+                                       kernel, stride, dilation
         top.shape = outputShape
+
+    inferShapesForOneBlobInternal: (input, output, padding, kernel, stride, dilation) =>
+        # Assume 'input' and 'output' are shapes
+        undefined
 
     checkParameters: (bottoms, tops) =>
         unless @filters?
-            throw 'Convolution layer must have num_output parameter.'
+            throw "#{@name} layer must have num_output parameter."
         if not @kernel? and (not @kernel[0]? or not @kernel[1]?)
             console.log @kernel
-            throw 'Convolution kernel sizes must be set.'
+            throw "#{@name} kernel sizes must be set."
         unless bottoms?
-            throw 'Convolution layer received undefined bottom blobs.'
+            throw "#{@name} layer received undefined bottom blobs."
         if bottoms.length != tops.length
-            throw "Convolution layer can process number of top blobs which is equal to " +
+            throw "#{@name} layer can process number of top blobs which is equal to " +
                   "the number of bottom blobs, but received #{tops.length} top blobs and " +
                   "#{bottoms.length} bottom blobs."
+
+layers.Convolution =
+class @ConvolutionLayer extends ConvolutionLayerBase
+    constructor: (attribs) ->
+        super 'Convolution', attribs
+
+    inferShapesForOneBlobInternal: (input, output, padding, kernel, stride, dilation) =>
+        output[@axis] = @filters
+        for i in [@axis + 1...input.length]
+            ii = i - @axis - 1
+            kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
+            outDim = (input[i] + 2 * padding[ii] - kernelExtent) / stride[ii] + 1
+            output[i] = Math.floor outDim
+
+layers.Deconvolution =
+class @DeconvolutionLayer extends ConvolutionLayerBase
+    constructor: (attribs) ->
+        super 'Deconvolution', attribs
+
+    inferShapesForOneBlobInternal: (input, output, padding, kernel, stride, dilation) =>
+        output[@axis] = @filters
+        for i in [@axis + 1...input.length]
+            ii = i - @axis - 1
+            kernelExtent = dilation[ii] * (kernel[ii] - 1) + 1;
+            outDim = stride[ii] * (input[i] - 1) + kernelExtent - 2 * padding[ii]
+            output[i] = Math.floor outDim
 
 layers.Pooling =
 class @PoolingLayer
@@ -304,8 +328,13 @@ class @EltwiseLayer
             unless areShapesEqual firstShape, shape
                 throw "Eltwise layer received incorrect input shapes: " +
                       "#{shapesToString(inputShapes)}. " +
-                      "All exes must have the same sizes."
+                      "All axes must have the same sizes."
 
+layers.Crop =
+class @CropLayer
+    inferShapes: (bottoms, tops) =>
+        unless tops?[0]? then return
+        tops[0].shape = bottoms[1].shape
 
 isLossLayer = (layerType) ->
     /loss/i.test layerType

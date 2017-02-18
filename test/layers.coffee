@@ -64,9 +64,8 @@ setupSlidingWindowParameters = (params, kernels, strides, paddings,
     else
         params.pad = paddings if paddings?
 
-runConvTasks = (tasks, useKernelHW = false,
-                       useStrideHW = false,
-                       usePaddingHW = false) ->
+runConvTasksBase = (tasks, LayerType, useKernelHW,
+                    useStrideHW, usePaddingHW) ->
     makeCaffeConvParams = (filters, kernels, strides, paddings) =>
         params =  { num_output: filters }
         setupSlidingWindowParameters params, kernels, strides, paddings,
@@ -76,14 +75,17 @@ runConvTasks = (tasks, useKernelHW = false,
         convParamsStr = stringifyConvParams task[2]...,
                         useKernelHW, useStrideHW, usePaddingHW
         return "from [ #{task[0]} ] to [ #{task[1]} ] with #{convParamsStr}"
-    compareConvOutput = (task) ->
-        compareLayerOutput layers.ConvolutionLayer, makeCaffeConvParams, task
+    compareConvOutput = (task) =>
+        compareLayerOutput LayerType, makeCaffeConvParams, task
     runLayerTasks tasks, makeConvTaskName, compareConvOutput
 
+runConvTasks = (tasks, useKernelHW=false, useStrideHW=false, usePaddingHW=false) ->
+    runConvTasksBase tasks, layers.ConvolutionLayer, useKernelHW, useStrideHW, usePaddingHW
 
-runPoolTasks = (tasks, useKernelHW = false,
-                       useStrideHW = false,
-                       usePaddingHW = false) ->
+runDeconvTasks = (tasks, useKernelHW=false, useStrideHW=false, usePaddingHW=false) ->
+    runConvTasksBase tasks, layers.DeconvolutionLayer, useKernelHW, useStrideHW, usePaddingHW
+
+runPoolTasks = (tasks, useKernelHW=false, useStrideHW=false, usePaddingHW=false) ->
     makeCaffePoolParams = (kernels, strides, paddings) ->
         params = { }
         setupSlidingWindowParameters params, kernels, strides, paddings,
@@ -170,6 +172,46 @@ describe 'Compute 2D Convolution output shape', ->
         for useStrideHW in falsetrue
             for usePaddingHW in falsetrue
                 runConvTasks tasks, useKernelHW, useStrideHW, usePaddingHW
+
+describe 'Compute 2D Deconvolution output shape', ->
+    # [ input shape, expecting output shape ]
+    # null means default parameter value
+    shapes1 = (p) -> [ [32, 96, 55, 55], [32, 3, 227, 227], p ]
+    shapes2 = (p) -> [ [32, 256, 27, 27], [32, 256, 27, 27], p ]
+    shapes3 = (p) -> [ [1, 96, 15, 15], [1, 256, 15, 15], p ]
+    # [filters, kernels, strides, paddings]
+    tasks = [
+        shapes1 [ 3,  [11, 11], [4, 4], [0, 0] ]
+        shapes1 [ 3,  [11, 11], [4, 4],   0    ]
+        shapes1 [ 3,  [11, 11], [4, 4],  null  ]
+        shapes1 [ 3,  [11, 11],    4,   [0, 0] ]
+        shapes1 [ 3,  [11, 11],    4,     0    ]
+        shapes1 [ 3,  [11, 11],    4,    null  ]
+        shapes1 [ 3,     11,    [4, 4], [0, 0] ]
+        shapes1 [ 3,     11,    [4, 4],   0    ]
+        shapes1 [ 3,     11,    [4, 4],  null  ]
+        shapes1 [ 3,     11,       4,   [0, 0] ]
+        shapes1 [ 3,     11,       4,     0    ]
+        shapes1 [ 3,     11,       4,    null  ]
+        shapes2 [ 256, [5, 5],   [1, 1], [2, 2] ]
+        shapes2 [ 256, [5, 5],   [1, 1],   2    ]
+        shapes2 [ 256, [5, 5],     1,    [2, 2] ]
+        shapes2 [ 256, [5, 5],     1,      2    ]
+        shapes2 [ 256,    5,     [1, 1], [2, 2] ]
+        shapes2 [ 256,    5,     [1, 1],   2    ]
+        shapes2 [ 256,    5,       1,    [2, 2] ]
+        shapes2 [ 256,    5,       1,      2    ]
+        shapes2 [ 256,    5,      null,  [2, 2] ]
+        shapes2 [ 256,    5,      null,    2    ]
+        shapes2 [ 256, [5, 5],    null,  [2, 2] ]
+        shapes2 [ 256, [5, 5],    null,    2    ]
+        shapes3 [ 256,  [1, 7],   [1, 1], [0, 3] ]
+    ]
+    falsetrue = [false, true]
+    for useKernelHW in falsetrue
+        for useStrideHW in falsetrue
+            for usePaddingHW in falsetrue
+                runDeconvTasks tasks, useKernelHW, useStrideHW, usePaddingHW
 
 describe 'Compute 3D Convolution output shape', ->
     # [ input shape, expecting output shape ]
