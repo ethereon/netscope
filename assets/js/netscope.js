@@ -29,6 +29,7 @@ module.exports = AppController = (function() {
       return;
     }
     this.$netError.hide();
+    this.$netWarn.hide();
     this.$netBox.hide();
     this.$spinner.show();
     return loader.apply(null, slice.call(args).concat([(function(_this) {

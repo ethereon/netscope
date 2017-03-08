@@ -17,6 +17,7 @@ class AppController
         if @inProgress
             return
         @$netError.hide()
+        @$netWarn.hide()
         @$netBox.hide()
         @$spinner.show()
         loader args..., (net) => @completeLoading(net)
