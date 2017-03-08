@@ -1,17 +1,23 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-var AppController, Editor, Renderer,
+var AppController, Editor, Notify, Renderer,
+  bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   slice = [].slice;
 
 Renderer = require('./renderer.coffee');
 
 Editor = require('./editor.coffee');
 
+Notify = require('./notify.coffee');
+
 module.exports = AppController = (function() {
   function AppController() {
+    this.handleWarning = bind(this.handleWarning, this);
+    this.handleError = bind(this.handleError, this);
     this.inProgress = false;
     this.$spinner = $('#net-spinner');
     this.$netBox = $('#net-container');
     this.$netError = $('#net-error');
+    this.$netWarn = $('#net-warning');
     this.svg = '#net-svg';
     this.setupErrorHandler();
   }
@@ -64,19 +70,26 @@ module.exports = AppController = (function() {
   };
 
   AppController.prototype.setupErrorHandler = function() {
-    return window.onerror = (function(_this) {
-      return function(message, filename, lineno, colno, e) {
-        var msg;
-        msg = message;
-        if (!(_.isUndefined(e) || _.isUndefined(e.line) || _.isUndefined(e.column))) {
-          msg = _.template('Line ${line}, Column ${column}: ${message}')(e);
-        }
-        _this.$spinner.hide();
-        $('.msg', _this.$netError).html(msg);
-        _this.$netError.show();
-        return _this.inProgress = false;
-      };
-    })(this);
+    window.onerror = this.handleError;
+    Notify.onerror(this.handleError);
+    return Notify.onwarning(this.handleWarning);
+  };
+
+  AppController.prototype.handleError = function(message, filename, lineno, colno, e) {
+    var msg;
+    msg = message;
+    if (((e != null ? e.line : void 0) != null) && ((e != null ? e.column : void 0) != null)) {
+      msg = "Line " + e.line + ", Column " + e.column + ": " + e.message;
+    }
+    this.$spinner.hide();
+    $('.msg', this.$netError).html(msg);
+    this.$netError.show();
+    return this.inProgress = false;
+  };
+
+  AppController.prototype.handleWarning = function(message) {
+    $('.msg', this.$netWarn).html(message);
+    return this.$netWarn.show();
   };
 
   return AppController;
@@ -84,8 +97,8 @@ module.exports = AppController = (function() {
 })();
 
 
-},{"./editor.coffee":5,"./renderer.coffee":9}],2:[function(require,module,exports){
-var Blob, BlobTable, CaffeParser, Layers, LayersGenerator, Network, NodesGenerator, Parser, Utils, computePrecedingShapes, computeShapes, generateLayers, generateNetwork, setNodeOutputShapesAttribute,
+},{"./editor.coffee":5,"./notify.coffee":9,"./renderer.coffee":10}],2:[function(require,module,exports){
+var Blob, BlobTable, CaffeParser, Layers, LayersGenerator, Network, NodesGenerator, Notify, Parser, Utils, computePrecedingShapes, computeShapes, generateLayers, generateNetwork, setNodeOutputShapesAttribute,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   hasProp = {}.hasOwnProperty;
 
@@ -96,6 +109,8 @@ Layers = require('./layers.coffee');
 Network = require('./../network.coffee');
 
 Utils = require('./../utils/utils.coffee');
+
+Notify = require('./../notify.coffee');
 
 Blob = (function() {
   function Blob(name1) {
@@ -411,7 +426,7 @@ generateNetwork = function(layers, header) {
     return generator.fillNetwork(network, layers);
   } catch (error) {
     e = error;
-    return console.log("Can't build network graph. " + e);
+    return Notify.error("Can't build network graph. " + e);
   }
 };
 
@@ -463,7 +478,7 @@ computeShapes = function(net) {
     return results;
   } catch (error) {
     e = error;
-    return console.log("Can't infer network data shapes. " + e);
+    return Notify.warning("Can't infer network data shapes. " + e);
   }
 };
 
@@ -484,8 +499,8 @@ module.exports = CaffeParser = (function() {
 })();
 
 
-},{"./../network.coffee":8,"./../utils/utils.coffee":10,"./layers.coffee":3,"./parser":4}],3:[function(require,module,exports){
-var ConvolutionLayerBase, areShapesEqual, extractKernelSizes, extractPaddingSizes, extractStrideSizes, getLayerType, getParameterAsArray, getValueOrDefault, isDataLayer, isLossLayer, layers, shapesToString, utils,
+},{"./../network.coffee":8,"./../notify.coffee":9,"./../utils/utils.coffee":11,"./layers.coffee":3,"./parser":4}],3:[function(require,module,exports){
+var ConvolutionLayerBase, areShapesEqual, extractKernelSizes, extractPaddingSizes, extractStrideSizes, getLayerType, getParameterAsArray, getValueOrDefault, isDataLayer, isLossLayer, isUniformLayer, layers, shapesToString, utils,
   bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
   extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
   hasProp = {}.hasOwnProperty;
@@ -568,7 +583,7 @@ shapesToString = function(inputShapes) {
 
 layers = {};
 
-layers.uniform = this.UniformLayer = (function() {
+layers.Uniform = this.UniformLayer = (function() {
   function UniformLayer() {}
 
   UniformLayer.prototype.inferShapes = function(bottoms, tops) {
@@ -1079,8 +1094,15 @@ isDataLayer = function(layerType) {
   return (/input/i.test(layerType)) || (/data/i.test(layerType));
 };
 
+isUniformLayer = function(lt) {
+  return (/relu/i.test(lt)) || (/prelu/i.test(lt)) || (/elu/i.test(lt)) || (/sigmoid/i.test(lt)) || (/tanh/i.test(lt)) || (/abs/i.test(lt)) || (/power/i.test(lt)) || (/exp/i.test(lt)) || (/log/i.test(lt)) || (/bnll/i.test(lt)) || (/threshold/i.test(lt)) || (/bias/i.test(lt)) || (/scale/i.test(lt)) || (/lrn/i.test(lt)) || (/dropout/i.test(lt)) || (/batchnorm/i.test(lt)) || (/mvn/i.test(lt)) || (/softmax/i.test(lt));
+};
+
 getLayerType = function(layerTypeName) {
   var layerType, layerTypeNameTitle;
+  if (isUniformLayer(layerTypeName)) {
+    return layers.Uniform;
+  }
   if (isDataLayer(layerTypeName)) {
     return layers.Data;
   }
@@ -1092,13 +1114,16 @@ getLayerType = function(layerTypeName) {
     layerTypeNameTitle = utils.toTitleCase(layerTypeName);
     layerType = layers[layerTypeNameTitle];
   }
-  return layerType || layers.uniform;
+  if (layerType == null) {
+    throw "Unsupported layer type: '" + layerTypeName + "'.";
+  }
+  return layerType;
 };
 
 exports.inferTopShapes = function(node) {
   var LayerType, e, layer, top;
-  LayerType = getLayerType(node.type);
   try {
+    LayerType = getLayerType(node.type);
     layer = new LayerType(node.attribs);
     layer.inferShapes(node.bottoms, node.tops);
     return (function() {
@@ -1118,7 +1143,7 @@ exports.inferTopShapes = function(node) {
 };
 
 
-},{"../utils/utils.coffee":10}],4:[function(require,module,exports){
+},{"../utils/utils.coffee":11}],4:[function(require,module,exports){
 module.exports = (function() {
   "use strict";
 
@@ -3097,6 +3122,53 @@ module.exports = Network = (function() {
 
 
 },{}],9:[function(require,module,exports){
+var Notifier;
+
+module.exports = Notifier = (function() {
+  function Notifier() {}
+
+  Notifier._errorHandlers = [];
+
+  Notifier._warningHandlers = [];
+
+  Notifier.onerror = function(handler) {
+    return Notifier._errorHandlers.push(handler);
+  };
+
+  Notifier.onwarning = function(handler) {
+    return Notifier._warningHandlers.push(handler);
+  };
+
+  Notifier.error = function(object) {
+    var handler, i, len, ref, results;
+    console.log('Error: ' + object);
+    ref = Notifier._errorHandlers;
+    results = [];
+    for (i = 0, len = ref.length; i < len; i++) {
+      handler = ref[i];
+      results.push(handler(object));
+    }
+    return results;
+  };
+
+  Notifier.warning = function(object) {
+    var handler, i, len, ref, results;
+    console.log('Warning: ' + object);
+    ref = Notifier._warningHandlers;
+    results = [];
+    for (i = 0, len = ref.length; i < len; i++) {
+      handler = ref[i];
+      results.push(handler(object));
+    }
+    return results;
+  };
+
+  return Notifier;
+
+})();
+
+
+},{}],10:[function(require,module,exports){
 var Renderer,
   hasProp = {}.hasOwnProperty;
 
@@ -3309,7 +3381,7 @@ module.exports = Renderer = (function() {
 })();
 
 
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 var toTitleCaseSaveSpaces, typeIsArray;
 
 exports.typeIsArray = typeIsArray = function(value) {

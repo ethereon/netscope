@@ -1,5 +1,6 @@
-Renderer    = require './renderer.coffee'
-Editor      = require './editor.coffee'
+Renderer = require './renderer.coffee'
+Editor   = require './editor.coffee'
+Notify   = require './notify.coffee'
 
 module.exports =
 class AppController
@@ -8,6 +9,7 @@ class AppController
         @$spinner   = $('#net-spinner')
         @$netBox    = $('#net-container')
         @$netError  = $('#net-error')
+        @$netWarn   = $('#net-warning')
         @svg        = '#net-svg'
         @setupErrorHandler()
 
@@ -40,12 +42,19 @@ class AppController
                 @netEditor = new Editor @makeLoader loader.load
 
     setupErrorHandler: ->
-        window.onerror = (message, filename, lineno, colno, e) =>
-            msg = message
-            if not (_.isUndefined(e) || _.isUndefined(e.line) || _.isUndefined(e.column))
-                msg = _.template('Line ${line}, Column ${column}: ${message}')(e)
-            @$spinner.hide()
-            $('.msg', @$netError).html(msg);
-            @$netError.show()
-            @inProgress = false
+        window.onerror = @handleError
+        Notify.onerror   @handleError
+        Notify.onwarning @handleWarning
 
+    handleError: (message, filename, lineno, colno, e) =>
+        msg = message
+        if e?.line? and e?.column?
+            msg = "Line #{e.line}, Column #{e.column}: #{e.message}"
+        @$spinner.hide()
+        $('.msg', @$netError).html(msg);
+        @$netError.show()
+        @inProgress = false
+
+    handleWarning: (message) =>
+        $('.msg', @$netWarn).html(message);
+        @$netWarn.show()

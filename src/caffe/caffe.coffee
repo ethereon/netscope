@@ -2,6 +2,7 @@ Parser  = require './parser'
 Layers  = require './layers.coffee'
 Network = require './../network.coffee'
 Utils   = require './../utils/utils.coffee'
+Notify  = require './../notify.coffee'
 
 class Blob
     constructor: (@name) ->
@@ -171,7 +172,7 @@ generateNetwork = (layers, header) ->
         generator = new NodesGenerator blobTable
         return generator.fillNetwork network, layers
     catch e
-        console.log "Can't build network graph. " + e
+        Notify.error "Can't build network graph. " + e
 
 generateLayers = (descriptors, header) ->
     layersGenerator = new LayersGenerator descriptors, header
@@ -198,7 +199,7 @@ computeShapes = (net) ->
         for node in endNodes
             computePrecedingShapes node
     catch e
-        console.log "Can't infer network data shapes. " + e
+        Notify.warning "Can't infer network data shapes. " + e
 
 module.exports =
 class CaffeParser

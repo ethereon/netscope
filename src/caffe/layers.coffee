@@ -51,7 +51,7 @@ shapesToString = (inputShapes) ->
 
 
 layers = {}
-layers.uniform =
+layers.Uniform =
 class @UniformLayer
     inferShapes: (bottoms, tops) ->
         unless tops?[0]? then return
@@ -355,7 +355,29 @@ isDataLayer = (layerType) ->
     (/input/i.test layerType) or
     (/data/i.test layerType)
 
+isUniformLayer = (lt) ->
+    (/relu/i.test      lt) or
+    (/prelu/i.test     lt) or
+    (/elu/i.test       lt) or
+    (/sigmoid/i.test   lt) or
+    (/tanh/i.test      lt) or
+    (/abs/i.test       lt) or
+    (/power/i.test     lt) or
+    (/exp/i.test       lt) or
+    (/log/i.test       lt) or
+    (/bnll/i.test      lt) or
+    (/threshold/i.test lt) or
+    (/bias/i.test      lt) or
+    (/scale/i.test     lt) or
+    (/lrn/i.test       lt) or
+    (/dropout/i.test   lt) or
+    (/batchnorm/i.test lt) or
+    (/mvn/i.test       lt) or
+    (/softmax/i.test   lt)
+
 getLayerType = (layerTypeName) ->
+    if isUniformLayer layerTypeName
+        return layers.Uniform
     if isDataLayer layerTypeName
         return layers.Data
     if isLossLayer layerTypeName
@@ -364,11 +386,13 @@ getLayerType = (layerTypeName) ->
     unless layerType?
         layerTypeNameTitle = utils.toTitleCase layerTypeName
         layerType = layers[layerTypeNameTitle]
-    return layerType or layers.uniform
+    unless layerType?
+        throw "Unsupported layer type: '#{layerTypeName}'."
+    return layerType
 
 exports.inferTopShapes = (node) ->
-    LayerType = getLayerType node.type
     try
+        LayerType = getLayerType node.type
         layer = new LayerType node.attribs
         layer.inferShapes node.bottoms, node.tops
         return (top.shape for top in node.tops)
