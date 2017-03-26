@@ -3,7 +3,8 @@
   "version": "0.9.0",
   "description": "Network visualization tool",
   "scripts": {
-    "start": "watchify -v -t coffeeify src/netscope.coffee -o assets/js/netscope.js"
+    "start": "watchify -v -t coffeeify src/netscope.coffee -o assets/js/netscope.js",
+    "test": "mocha --compilers coffee:coffee-script/register"
   },
   "repository": {
     "type": "git",

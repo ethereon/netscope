@@ -8,6 +8,9 @@ class Node
         # node form a simple chain structure.
         @coalesce = []
 
+    hasChildren: =>
+        @children.length > 0
+
     addChild: (child) =>
         if child not in @children
             @children.push child
@@ -41,6 +44,9 @@ class Network
         node = new Node label, type, attribs
         @nodes.push node
         return node
+
+    findEndNodes: =>
+        (x for x in @nodes when not x.hasChildren())
 
     sortTopologically: =>
         sortedNodes = []

@@ -65,8 +65,8 @@ h1, h2, h3 {
     text-align: center;
 }
 
+#net-warning,
 #net-error {
-    background-color: #C23739;
     color: #FFF;
     padding: 20px;
     border: 1px solid transparent;
@@ -77,6 +77,15 @@ h1, h2, h3 {
     font-family: Menlo,Monaco,Consolas,"Courier New",monospace;
 }
 
+#net-error {
+    background-color: #C23739;
+}
+
+#net-warning {
+    background-color: #F29233;
+}
+
+#net-warning .title,
 #net-error .title {
     border-bottom: 1px solid #FFABAC;
     padding-bottom: 10px;
