@@ -110,7 +110,7 @@ class LayersGenerator
     constructor: (@descriptors, @header) ->
 
     generate: (phase) =>
-        descriptors = @tryExtractDescriptorsFromHeader()
+        @tryExtractDescriptorsFromHeader()
         layers = @generateRegularLayers phase
         return layers
 
@@ -134,12 +134,19 @@ class LayersGenerator
         return layers
 
     tryExtractDescriptorsFromHeader: =>
+        if @header.layer?
+            # If there isn't any header content in the prototxt
+            # (initial key:value pairs), the first layer gets parsed as
+            # the header. Arguably, this should be fixed in the parser.
+            # For now, we check for this here.
+            @descriptors.unshift @header
+            return
+
         dataLayer = @tryConvertHeaderInputToDataLayer()
         unless dataLayer?
             dataLayer = @tryConvertInputShapeEntryToDataLayer()
         if dataLayer?
             @descriptors.push dataLayer
-        return @descriptors
 
     tryConvertInputShapeEntryToDataLayer: =>
         for entry in @descriptors

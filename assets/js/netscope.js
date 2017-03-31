@@ -328,8 +328,8 @@ LayersGenerator = (function() {
   }
 
   LayersGenerator.prototype.generate = function(phase) {
-    var descriptors, layers;
-    descriptors = this.tryExtractDescriptorsFromHeader();
+    var layers;
+    this.tryExtractDescriptorsFromHeader();
     layers = this.generateRegularLayers(phase);
     return layers;
   };
@@ -364,14 +364,17 @@ LayersGenerator = (function() {
 
   LayersGenerator.prototype.tryExtractDescriptorsFromHeader = function() {
     var dataLayer;
+    if (this.header.layer != null) {
+      this.descriptors.unshift(this.header);
+      return;
+    }
     dataLayer = this.tryConvertHeaderInputToDataLayer();
     if (dataLayer == null) {
       dataLayer = this.tryConvertInputShapeEntryToDataLayer();
     }
     if (dataLayer != null) {
-      this.descriptors.push(dataLayer);
+      return this.descriptors.push(dataLayer);
     }
-    return this.descriptors;
   };
 
   LayersGenerator.prototype.tryConvertInputShapeEntryToDataLayer = function() {
